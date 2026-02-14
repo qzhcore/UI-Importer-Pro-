@@ -1,0 +1,17 @@
+{
+  "name": "UI-Importer-Pro-Test",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Packages": {
+        "$path": "Packages"
+      },
+      "PluginSource": {
+        "$path": "src"
+      },
+      "Tests": {
+        "$path": "tests"
+      }
+    }
+  }
+}
