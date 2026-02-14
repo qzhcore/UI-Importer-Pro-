@@ -1,0 +1,10 @@
+[scripts]
+# Define custom globals if needed
+
+[rules]
+# Standard strict rules for high-end Luau projects
+multiple_statements = "allow"
+shadowing = "warn"
+unused_variable = "warn"
+undefined_variable = "error"
+global_usage = "warn"
