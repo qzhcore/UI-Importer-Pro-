@@ -1,22 +1,26 @@
-name: CI
+name: Release
 
-on: [push, pull_request]
+on:
+  push:
+    tags:
+      - 'v*'
 
 jobs:
-  analyze:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ok-nick/setup-aftman@v0.4.2
 
-      - name: Install Wally Packages
+      - name: Install Wally
         run: wally install
 
-      - name: Setup LSP Definitions
-        run: python3 bin/setup_lsp.py
+      - name: Build Binary
+        run: rojo build -o UI-Importer-Pro.rbxm
 
-      - name: Generate Rojo Sourcemap
-        run: rojo sourcemap default.project.json --output sourcemap.json
-
-      - name: Luau Type Check
-        run: luau-lsp analyze --sourcemap=sourcemap.json --defs=globalTypes.d.luau src
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: UI-Importer-Pro.rbxm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
