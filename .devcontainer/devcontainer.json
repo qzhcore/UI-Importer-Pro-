@@ -1,0 +1,17 @@
+{
+	"name": "UI Importer Pro Dev",
+	"image": "mcr.microsoft.com/vscode/devcontainers/base:ubuntu",
+	"features": {
+		"ghcr.io/devcontainers/features/node:1": {}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"JohnnyMorganz.luau-lsp",
+				"Nightly_Build.rojo",
+				"miguelsolorio.fluent-icons"
+			]
+		}
+	},
+	"postCreateCommand": "npm install -g @aftman/aftman && aftman install"
+}
