@@ -1,0 +1,11 @@
+[package]
+name = "your-username/ui-importer-pro"
+description = "Professional UI scaling and import toolchain"
+version = "0.1.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+[dependencies]
+# Example: Adding a UI library for the plugin's future interface
+# Fusion = "elttob/fusion@0.2.0"
+# Promise = "evaera/promise@4.0.0"
