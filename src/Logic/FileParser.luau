@@ -2,14 +2,14 @@ local FileParser = {}
 
 local ScalingEngine = require(script.Parent.ScalingEngine)
 
-function FileParser.SanitizeAndProcess(instances)
-	for _, instance in ipairs(instances) do
-		if instance:IsA("GuiObject") then
-			ScalingEngine.ProcessRecursive(instance)
-		elseif instance:IsA("Instance") then
-			for _, child in ipairs(instance:GetChildren()) do
-				FileParser.SanitizeAndProcess({child})
-			end
+function FileParser.validate(instance)
+	return instance:IsA("GuiObject") or instance:IsA("ScreenGui")
+end
+
+function FileParser.processImported(instances)
+	for _, obj in ipairs(instances) do
+		if FileParser.validate(obj) then
+			ScalingEngine.ProcessRecursive(obj)
 		end
 	end
 end
