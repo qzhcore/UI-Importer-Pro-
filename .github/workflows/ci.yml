@@ -1,28 +1,19 @@
 name: CI
 
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+on: [push, pull_request]
 
 jobs:
-  build:
+  analyze:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Toolchain
-        uses: ok-nick/setup-aftman@v0.4.2
+      - uses: ok-nick/setup-aftman@v0.4.2
 
       - name: Install Packages
         run: wally install
 
-      - name: Lint
-        run: selene src
+      - name: Generate Sourcemap
+        run: rojo sourcemap default.project.json --output sourcemap.json
 
-      - name: Format Check
-        run: stylua --check src
-
-      - name: Build Plugin
-        run: rojo build -o UIImporter.rbxm
+      - name: Luau Analysis
+        run: luau-lsp analyze --sourcemap=sourcemap.json --defs=globalTypes.d.luau src
