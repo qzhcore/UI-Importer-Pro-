@@ -1,18 +1,24 @@
 local Selection = game:GetService("Selection")
 
-local SelectionWatcher = {}
+local SelectionHandler = {}
 
-function SelectionWatcher.GetSelectedGuiObjects()
+function SelectionHandler.GetSelectedGuiObjects(): {GuiObject}
 	local selected = Selection:Get()
-	local guiObjects = {}
-
-	for _, obj in ipairs(selected) do
-		if obj:IsA("GuiObject") or obj:IsA("ScreenGui") then
-			table.insert(guiObjects, obj)
+	local valid = {}
+	
+	for _, instance in ipairs(selected) do
+		if instance:IsA("GuiObject") then
+			table.insert(valid, instance)
 		end
 	end
-
-	return guiObjects
+	
+	return valid
 end
 
-return SelectionWatcher
+function SelectionHandler.Observe(callback: ({Instance}) -> ())
+	return Selection.SelectionChanged:Connect(function()
+		callback(Selection:Get())
+	end)
+end
+
+return SelectionHandler
