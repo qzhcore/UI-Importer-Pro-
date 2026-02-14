@@ -9,11 +9,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ok-nick/setup-aftman@v0.4.2
 
-      - name: Install Packages
+      - name: Install Wally Packages
         run: wally install
 
-      - name: Generate Sourcemap
+      - name: Setup LSP Definitions
+        run: python3 bin/setup_lsp.py
+
+      - name: Generate Rojo Sourcemap
         run: rojo sourcemap default.project.json --output sourcemap.json
 
-      - name: Luau Analysis
+      - name: Luau Type Check
         run: luau-lsp analyze --sourcemap=sourcemap.json --defs=globalTypes.d.luau src
