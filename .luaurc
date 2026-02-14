@@ -1,0 +1,11 @@
+{
+    "languageMode": "strict",
+    "moduleAliases": {
+        "Logic": "src/Logic",
+        "Plugin": "src/Plugin",
+        "Shared": "src/Shared",
+        "Components": "src/Components"
+    },
+    "enableInlining": true,
+    "maximumStandardLibraryAllowed": "all"
+}
