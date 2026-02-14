@@ -1,0 +1,15 @@
+{
+  "name": "UI-Importer-Pro",
+  "tree": {
+    "$className": "DataModel",
+    "HttpService": {
+      "$className": "HttpService",
+      "HttpEnabled": true
+    },
+    "StarterGui": {
+      "UIImporterPlugin": {
+        "$path": "src"
+      }
+    }
+  }
+}
