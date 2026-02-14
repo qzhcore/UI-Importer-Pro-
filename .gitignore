@@ -1,0 +1,28 @@
+# --- Roblox ---
+*.rbxm
+*.rbxmx
+*.lock
+.rojo/
+sourcemap.json
+
+# --- Tooling ---
+.aftman/
+Packages/
+ServerPackages/
+node_modules/
+vendor/
+
+# --- LSP & Analysis ---
+.luau-lsp/
+globalTypes.d.luau
+lint_report.json
+
+# --- System ---
+.DS_Store
+Thumbs.db
+*.log
+.history/
+
+# --- Environments ---
+.env
+.vscode/
