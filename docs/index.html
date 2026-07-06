@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>UI Importer Pro Documentation</title>
+	<style>
+		:root {
+			color-scheme: light dark;
+			--bg: #f7f8fb;
+			--panel: #ffffff;
+			--text: #172033;
+			--muted: #5d6a7e;
+			--line: #dfe5ef;
+			--accent: #1976d2;
+			--code: #eef3f8;
+		}
+
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #0d1117;
+				--panel: #161b22;
+				--text: #e6edf3;
+				--muted: #9da7b3;
+				--line: #30363d;
+				--accent: #58a6ff;
+				--code: #21262d;
+			}
+		}
+
+		* {
+			box-sizing: border-box;
+		}
+
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--text);
+			font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+			line-height: 1.6;
+		}
+
+		main {
+			width: min(960px, calc(100% - 32px));
+			margin: 0 auto;
+			padding: 56px 0;
+		}
+
+		header {
+			margin-bottom: 32px;
+		}
+
+		h1 {
+			margin: 0 0 12px;
+			font-size: clamp(2.25rem, 6vw, 4rem);
+			line-height: 1;
+		}
+
+		h2 {
+			margin: 32px 0 12px;
+			font-size: 1.35rem;
+		}
+
+		h3 {
+			margin: 24px 0 8px;
+			font-size: 1rem;
+		}
+
+		p {
+			margin: 0 0 14px;
+			color: var(--muted);
+		}
+
+		section {
+			padding: 24px;
+			margin: 18px 0;
+			background: var(--panel);
+			border: 1px solid var(--line);
+			border-radius: 8px;
+		}
+
+		ul, ol {
+			margin: 0;
+			padding-left: 22px;
+		}
+
+		li + li {
+			margin-top: 6px;
+		}
+
+		code {
+			padding: 2px 6px;
+			background: var(--code);
+			border-radius: 4px;
+			font-size: 0.92em;
+		}
+
+		a {
+			color: var(--accent);
+		}
+	</style>
+</head>
+<body>
+	<main>
+		<header>
+			<h1>UI Importer Pro</h1>
+			<p>Roblox Studio plugin documentation for converting imported, offset-heavy UI into responsive scale-based layouts.</p>
+		</header>
+
+		<section>
+			<h2>Quick Start</h2>
+			<ol>
+				<li>Install or sync the plugin in Roblox Studio.</li>
+				<li>Select a <code>ScreenGui</code> or supported UI object in Explorer.</li>
+				<li>Click the <code>FixScale</code> toolbar button.</li>
+				<li>Review the converted layout across multiple viewport sizes.</li>
+			</ol>
+		</section>
+
+		<section>
+			<h2>Core Behavior</h2>
+			<ul>
+				<li>Traverses selected UI hierarchies recursively.</li>
+				<li>Converts <code>Size</code> from absolute pixels to parent-relative scale.</li>
+				<li>Converts <code>Position</code> using parent-relative absolute placement.</li>
+				<li>Sets anchors to center while preserving current visual placement.</li>
+				<li>Adds missing <code>UIAspectRatioConstraint</code> instances.</li>
+				<li>Uses Studio history waypoints so conversions can be undone.</li>
+			</ul>
+		</section>
+
+		<section>
+			<h2>API Reference</h2>
+
+			<h3><code>ScalingEngine.ToScale(instance: Instance): boolean</code></h3>
+			<p>Converts a single <code>GuiObject</code> to scale-based <code>Size</code> and <code>Position</code>. Returns whether the object was processed.</p>
+
+			<h3><code>ScalingEngine.ProcessRecursive(root: Instance): number</code></h3>
+			<p>Processes <code>root</code> and every descendant. Returns the number of converted UI objects.</p>
+
+			<h3><code>FileParser.validate(instance: Instance): boolean</code></h3>
+			<p>Checks whether an instance can be used as a selected root.</p>
+
+			<h3><code>FileParser.identify(instances: { Instance }): { Instance }</code></h3>
+			<p>Filters a Studio selection down to supported UI roots.</p>
+
+			<h3><code>FileParser.processImported(instances: { Instance }): number</code></h3>
+			<p>Validates selected instances, converts each valid root, and returns the converted object count.</p>
+		</section>
+
+		<section>
+			<h2>Release Asset</h2>
+			<p>Download the latest <code>UIImporterPro.rbxm</code> plugin file from the repository's GitHub Releases page.</p>
+		</section>
+	</main>
+</body>
+</html>
