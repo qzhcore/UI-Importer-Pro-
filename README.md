@@ -12,6 +12,9 @@ Imported UI often arrives as fixed pixel offsets. That works on one viewport, th
 - convert offsets to parent-relative scale values
 - preserve nested UI placement
 - center anchors without moving objects visually
+- respect layout-managed children instead of forcing their positions
+- scale `UIListLayout`, `UIGridLayout`, `UIPageLayout`, `UIPadding`, and `ScrollingFrame.CanvasSize`
+- account for local `UIScale` objects when calculating responsive size
 - add aspect ratio constraints where they are missing
 - wrap changes in Studio history waypoints for undo support
 

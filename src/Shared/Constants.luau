@@ -19,6 +19,13 @@ local Constants = {
 		DominantAxis = Enum.DominantAxis.Width,
 		AspectType = Enum.AspectType.FitWithinMaxSize,
 	},
+
+	LAYOUT_CLASSES = {
+		"UIListLayout",
+		"UIGridLayout",
+		"UIPageLayout",
+		"UITableLayout",
+	},
 }
 
 return table.freeze(Constants)

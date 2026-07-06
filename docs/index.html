@@ -124,6 +124,10 @@
 				<li>Converts <code>Size</code> from absolute pixels to parent-relative scale.</li>
 				<li>Converts <code>Position</code> using parent-relative absolute placement.</li>
 				<li>Sets anchors to center while preserving current visual placement.</li>
+				<li>Leaves layout-managed child positions alone when a parent has <code>UIListLayout</code>, <code>UIGridLayout</code>, <code>UIPageLayout</code>, or <code>UITableLayout</code>.</li>
+				<li>Converts layout offsets such as <code>UIListLayout.Padding</code>, <code>UIGridLayout.CellSize</code>, <code>UIGridLayout.CellPadding</code>, <code>UIPageLayout.Padding</code>, and <code>UIPadding</code>.</li>
+				<li>Converts <code>ScrollingFrame.CanvasSize</code> offsets into scale relative to the scrolling frame size.</li>
+				<li>Accounts for local <code>UIScale</code> values when calculating responsive size.</li>
 				<li>Adds missing <code>UIAspectRatioConstraint</code> instances.</li>
 				<li>Uses Studio history waypoints so conversions can be undone.</li>
 			</ul>
