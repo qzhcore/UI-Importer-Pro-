@@ -1,10 +1,9 @@
-[scripts]
-# Define custom globals if needed
+std = "roblox"
 
-[rules]
+[lints]
 # Standard strict rules for high-end Luau projects
 multiple_statements = "allow"
 shadowing = "warn"
 unused_variable = "warn"
-undefined_variable = "error"
+undefined_variable = "deny"
 global_usage = "warn"

@@ -10,14 +10,14 @@ function MainButton.new(parent, text, callback)
 	button.TextColor3 = Color3.fromRGB(255, 255, 255)
 	button.Font = Enum.Font.GothamBold
 	button.TextSize = 14
-	
+
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 8)
 	corner.Parent = button
-	
+
 	button.MouseButton1Click:Connect(callback)
 	button.Parent = parent
-	
+
 	return button
 end
 

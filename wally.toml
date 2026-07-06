@@ -1,5 +1,5 @@
 [package]
-name = "your-username/ui-importer-pro"
+name = "qzhcore/ui-importer-pro"
 description = "Professional UI scaling and import toolchain"
 version = "0.1.0"
 registry = "https://github.com/UpliftGames/wally-index"

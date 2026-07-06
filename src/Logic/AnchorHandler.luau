@@ -1,12 +1,16 @@
 local AnchorHandler = {}
 
 function AnchorHandler.CenterAnchor(guiObject)
-	if not guiObject:IsA("GuiObject") then return end
+	if not guiObject:IsA("GuiObject") then
+		return
+	end
 
 	local oldAnchor = guiObject.AnchorPoint
 	local newAnchor = Vector2.new(0.5, 0.5)
-	
-	if oldAnchor == newAnchor then return end
+
+	if oldAnchor == newAnchor then
+		return
+	end
 
 	local size = guiObject.Size
 	local position = guiObject.Position

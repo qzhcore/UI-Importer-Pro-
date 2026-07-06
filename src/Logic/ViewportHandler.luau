@@ -4,7 +4,7 @@ function ViewportHandler.GetViewportSize(gui: LayerCollector?)
 	if gui then
 		return gui.AbsoluteSize
 	end
-	
+
 	local camera = workspace.CurrentCamera
 	return camera and camera.ViewportSize or Vector2.new(1920, 1080)
 end
