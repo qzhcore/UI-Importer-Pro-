@@ -1,5 +1,6 @@
 local FileParser = {}
 
+local LayoutOrganizer = require(script.Parent.LayoutOrganizer)
 local ScalingEngine = require(script.Parent.ScalingEngine)
 local Constants = require(script.Parent.Parent.Shared.Constants)
 
@@ -26,6 +27,7 @@ end
 function FileParser.processImported(instances)
 	local processed = 0
 	for _, obj in ipairs(FileParser.identify(instances)) do
+		processed += LayoutOrganizer.ProcessRecursive(obj)
 		processed += ScalingEngine.ProcessRecursive(obj)
 	end
 

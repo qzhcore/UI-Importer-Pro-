@@ -26,6 +26,14 @@ local Constants = {
 		"UIPageLayout",
 		"UITableLayout",
 	},
+
+	ORGANIZER = {
+		MIN_CHILDREN = 3,
+		ALIGNMENT_TOLERANCE = 6,
+		SIZE_TOLERANCE = 8,
+		GRID_TOLERANCE = 10,
+		PAGE_COVERAGE = 0.8,
+	},
 }
 
 return table.freeze(Constants)

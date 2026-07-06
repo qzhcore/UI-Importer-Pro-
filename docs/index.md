@@ -1,6 +1,7 @@
 # UI Importer Pro Documentation
 
 UI Importer Pro converts imported Roblox UI from fixed offsets into responsive scale-based layouts.
+It also organizes clear imported UI patterns into Roblox-native layout objects before scaling.
 
 ## Quick Start
 
@@ -16,6 +17,10 @@ UI Importer Pro converts imported Roblox UI from fixed offsets into responsive s
 - Converts `Position` using the selected object's parent-relative absolute position.
 - Sets anchors to the center while preserving the current visual placement.
 - Leaves layout-managed child positions alone when a parent has `UIListLayout`, `UIGridLayout`, `UIPageLayout`, or `UITableLayout`.
+- Infers aligned rows or columns into `UIListLayout`.
+- Infers uniform matrix groups into `UIGridLayout`.
+- Infers mixed-size row and column groups into `UITableLayout`.
+- Infers page-sized panels into `UIPageLayout`.
 - Converts `UIListLayout.Padding`, `UIGridLayout.CellSize`, `UIGridLayout.CellPadding`, `UIPageLayout.Padding`, and `UIPadding` offsets into scale.
 - Converts `ScrollingFrame.CanvasSize` offsets into scale relative to the scrolling frame size.
 - Accounts for local `UIScale` values when converting object size.
@@ -31,6 +36,10 @@ Converts a single `GuiObject` to scale-based `Size` and `Position`. Returns `tru
 ### `ScalingEngine.ProcessRecursive(root: Instance): number`
 
 Processes `root` and every descendant. Returns the number of converted `GuiObject` instances.
+
+### `LayoutOrganizer.ProcessRecursive(root: Instance): number`
+
+Infers and inserts Roblox layout helpers for clear row, column, grid, table, and page patterns. Returns the number of inserted layout objects.
 
 ### `FileParser.validate(instance: Instance): boolean`
 

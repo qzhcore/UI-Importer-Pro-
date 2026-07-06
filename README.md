@@ -13,6 +13,7 @@ Imported UI often arrives as fixed pixel offsets. That works on one viewport, th
 - preserve nested UI placement
 - center anchors without moving objects visually
 - respect layout-managed children instead of forcing their positions
+- infer clear rows, columns, grids, tables, and pages into Roblox layout objects
 - scale `UIListLayout`, `UIGridLayout`, `UIPageLayout`, `UIPadding`, and `ScrollingFrame.CanvasSize`
 - account for local `UIScale` objects when calculating responsive size
 - add aspect ratio constraints where they are missing
@@ -41,6 +42,7 @@ See the hosted documentation in `docs/` for module-level API notes:
 
 - `ScalingEngine.ToScale(instance)`
 - `ScalingEngine.ProcessRecursive(root)`
+- `LayoutOrganizer.ProcessRecursive(root)`
 - `FileParser.identify(instances)`
 - `FileParser.processImported(instances)`
 

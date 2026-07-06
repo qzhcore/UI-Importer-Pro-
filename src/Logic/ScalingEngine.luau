@@ -117,6 +117,11 @@ local function scaleLayout(instance, parentSize)
 		return true
 	end
 
+	if instance:IsA("UITableLayout") then
+		instance.Padding = convertUDim2(instance.Padding, parentSize)
+		return true
+	end
+
 	if instance:IsA("UIPadding") then
 		instance.PaddingBottom = convertUDim(instance.PaddingBottom, parentSize, "Y")
 		instance.PaddingLeft = convertUDim(instance.PaddingLeft, parentSize, "X")
