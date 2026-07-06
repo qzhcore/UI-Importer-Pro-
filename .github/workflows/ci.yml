@@ -1,26 +1,26 @@
-name: Release
+name: CI
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+  pull_request:
 
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ok-nick/setup-aftman@v0.4.2
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install Wally
-        run: wally install
+      - name: Setup Aftman
+        uses: ok-nick/setup-aftman@v0.4.2
 
-      - name: Build Binary
-        run: rojo build -o UI-Importer-Pro.rbxm
+      - name: Install tools
+        run: aftman install
 
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v1
-        with:
-          files: UI-Importer-Pro.rbxm
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Lint
+        run: selene src
+
+      - name: Build plugin
+        run: rojo build -o UIImporterPro.rbxm
