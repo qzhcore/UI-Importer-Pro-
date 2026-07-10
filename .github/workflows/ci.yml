@@ -23,4 +23,4 @@ jobs:
         run: selene src
 
       - name: Build plugin
-        run: rojo build -o UIImporterPro.rbxm
+        run: rojo build default.project.json --output UIImporterPro.rbxm
