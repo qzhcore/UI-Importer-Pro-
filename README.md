@@ -26,15 +26,17 @@ git clone https://github.com/qzhcore/UI-Importer-Pro-.git
 cd UI-Importer-Pro-
 aftman install
 wally install
-rojo build -o UIImporterPro.rbxm
+rojo build default.project.json --output UIImporterPro.rbxm
 ```
 
 ## Usage
 
-1. Build or sync the plugin with Rojo.
-2. Select a `ScreenGui` or supported `GuiObject` in Roblox Studio.
-3. Click the `FixScale` toolbar button.
-4. Use Studio undo if the selected hierarchy needs another pass.
+1. Build the plugin with `rojo build default.project.json --output UIImporterPro.rbxm`.
+2. Move `UIImporterPro.rbxm` into your local Roblox Studio `Plugins` folder.
+3. Restart Roblox Studio.
+4. Select a `ScreenGui` or supported `GuiObject` in Roblox Studio.
+5. Click the `FixScale` toolbar button.
+6. Use Studio undo if the selected hierarchy needs another pass.
 
 ## API
 
