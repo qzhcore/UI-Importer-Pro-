@@ -26,7 +26,7 @@ git clone https://github.com/qzhcore/UI-Importer-Pro-.git
 cd UI-Importer-Pro-
 aftman install
 wally install
-rojo build -o UIImporterPro.rbxm
+rojo build default.project.json --output UIImporterPro.rbxm
 ```
 
 ## Usage
