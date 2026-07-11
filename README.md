@@ -31,10 +31,12 @@ rojo build -o UIImporterPro.rbxm
 
 ## Usage
 
-1. Build or sync the plugin with Rojo.
-2. Select a `ScreenGui` or supported `GuiObject` in Roblox Studio.
-3. Click the `FixScale` toolbar button.
-4. Use Studio undo if the selected hierarchy needs another pass.
+1. Download `UIImporterPro.rbxm` from the latest GitHub release.
+2. In Roblox Studio, open the `Plugins` tab and click `Plugins Folder`.
+3. Move `UIImporterPro.rbxm` into that folder, then restart Studio.
+4. Select a `ScreenGui` or supported `GuiObject` in Explorer.
+5. Click the `FixScale` button in the `UI Importer Pro` toolbar.
+6. Use Studio undo if the selected hierarchy needs another pass.
 
 ## API
 

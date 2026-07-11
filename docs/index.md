@@ -5,10 +5,12 @@ It also organizes clear imported UI patterns into Roblox-native layout objects b
 
 ## Quick Start
 
-1. Open the plugin in Roblox Studio.
-2. Select a `ScreenGui` or supported UI object in Explorer.
-3. Click the `FixScale` toolbar button.
-4. Review the converted layout at multiple viewport sizes.
+1. Download `UIImporterPro.rbxm` from the latest GitHub release.
+2. In Roblox Studio, open the `Plugins` tab and click `Plugins Folder`.
+3. Move `UIImporterPro.rbxm` into that folder, then restart Studio.
+4. Select a `ScreenGui` or supported UI object in Explorer.
+5. Click the `FixScale` toolbar button.
+6. Review the converted layout at multiple viewport sizes.
 
 ## Core Behavior
 
