@@ -1,22 +1,9 @@
 {
   "name": "UIImporterPro",
   "tree": {
-    "$className": "Script",
-    "$path": "src/init.server.luau",
-    "Components": {
-      "$path": "src/Components"
-    },
-    "Hooks": {
-      "$path": "src/Hooks"
-    },
-    "Logic": {
-      "$path": "src/Logic"
-    },
-    "Plugin": {
-      "$path": "src/Plugin"
-    },
-    "Shared": {
-      "$path": "src/Shared"
+    "$path": "src",
+    "$properties": {
+      "RunContext": "Plugin"
     }
   }
 }
