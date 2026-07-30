@@ -3,36 +3,34 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>UI Importer Pro</title>
+	<meta name="description" content="UI Importer Pro converts layered PSD and native Figma files into responsive, script-ready Roblox UI.">
+	<meta name="theme-color" content="#07111f">
+	<meta property="og:type" content="website">
+	<meta property="og:title" content="UI Importer Pro — Design to Roblox UI">
+	<meta property="og:description" content="Convert layered PSD and native Figma files into responsive, script-ready Roblox UI.">
+	<meta property="og:url" content="https://qzhcore.github.io/UI-Importer-Pro-/">
+	<meta property="og:image" content="https://qzhcore.github.io/UI-Importer-Pro-/og.png">
+	<meta property="og:image:alt" content="UI Importer Pro turns design layers into an organized Roblox UI hierarchy.">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="UI Importer Pro — Design to Roblox UI">
+	<meta name="twitter:description" content="Convert layered PSD and native Figma files into responsive, script-ready Roblox UI.">
+	<meta name="twitter:image" content="https://qzhcore.github.io/UI-Importer-Pro-/og.png">
+	<title>UI Importer Pro — Design to Roblox UI</title>
 	<style>
 		:root {
-			color-scheme: light;
-			--bg: #ffffff;
-			--surface: #f6f8fb;
-			--panel: #ffffff;
-			--text: #182033;
-			--muted: #5f6f89;
-			--line: #dde5f0;
-			--accent: #2563eb;
-			--accent-dark: #1d4ed8;
-			--code: #eef2f7;
-			--shadow: 0 18px 50px rgba(24, 32, 51, 0.08);
-		}
-
-		@media (prefers-color-scheme: dark) {
-			:root {
-				color-scheme: dark;
-				--bg: #0b1020;
-				--surface: #11182a;
-				--panel: #151d31;
-				--text: #edf3ff;
-				--muted: #a8b5cb;
-				--line: #27324a;
-				--accent: #6ea8ff;
-				--accent-dark: #8bbaff;
-				--code: #202a40;
-				--shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
-			}
+			color-scheme: dark;
+			--ink: #eef7ff;
+			--muted: #9db0c2;
+			--bg: #050b13;
+			--panel: #0a1421;
+			--panel-2: #0d1b2b;
+			--line: rgba(170, 210, 241, 0.14);
+			--blue: #14a8ff;
+			--blue-2: #0878e8;
+			--mint: #49e6b1;
+			--warning: #ffc857;
+			--shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
+			--radius: 20px;
 		}
 
 		* {
@@ -45,35 +43,57 @@
 
 		body {
 			margin: 0;
-			background: var(--bg);
-			color: var(--text);
+			background:
+				radial-gradient(circle at 80% 6%, rgba(20, 168, 255, 0.15), transparent 27rem),
+				radial-gradient(circle at 12% 28%, rgba(73, 230, 177, 0.08), transparent 24rem),
+				var(--bg);
+			color: var(--ink);
 			font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 			line-height: 1.6;
 		}
 
 		a {
-			color: var(--accent);
-			text-decoration: none;
+			color: inherit;
 		}
 
-		a:hover {
-			color: var(--accent-dark);
-			text-decoration: underline;
+		a:focus-visible,
+		button:focus-visible,
+		summary:focus-visible {
+			outline: 3px solid var(--mint);
+			outline-offset: 4px;
+		}
+
+		.skip-link {
+			position: fixed;
+			left: 16px;
+			top: -80px;
+			z-index: 100;
+			padding: 10px 14px;
+			background: var(--ink);
+			color: var(--bg);
+			border-radius: 10px;
+		}
+
+		.skip-link:focus {
+			top: 16px;
+		}
+
+		.wrap {
+			width: min(1160px, calc(100% - 40px));
+			margin: 0 auto;
 		}
 
 		.site-nav {
 			position: sticky;
 			top: 0;
-			z-index: 10;
-			background: color-mix(in srgb, var(--bg) 92%, transparent);
+			z-index: 20;
 			border-bottom: 1px solid var(--line);
-			backdrop-filter: blur(14px);
+			background: rgba(5, 11, 19, 0.82);
+			backdrop-filter: blur(18px);
 		}
 
 		.nav-inner {
-			width: min(1120px, calc(100% - 32px));
-			height: 64px;
-			margin: 0 auto;
+			min-height: 70px;
 			display: flex;
 			align-items: center;
 			justify-content: space-between;
@@ -81,333 +101,994 @@
 		}
 
 		.brand {
-			font-weight: 760;
-			color: var(--text);
+			display: inline-flex;
+			align-items: center;
+			gap: 11px;
+			text-decoration: none;
+			font-weight: 800;
+			letter-spacing: -0.02em;
+		}
+
+		.brand-mark {
+			display: grid;
+			place-items: center;
+			width: 34px;
+			height: 34px;
+			border: 1px solid rgba(255, 255, 255, 0.22);
+			border-radius: 9px;
+			background: linear-gradient(145deg, #dff7ff, #65c8ff);
+			color: #06101c;
+			box-shadow: 0 8px 24px rgba(20, 168, 255, 0.22);
+			font-size: 0.72rem;
+			font-weight: 900;
 		}
 
 		.nav-links {
 			display: flex;
 			align-items: center;
-			gap: 18px;
-			font-size: 0.95rem;
+			gap: 24px;
+			color: var(--muted);
+			font-size: 0.92rem;
 		}
 
-		main {
-			width: min(1120px, calc(100% - 32px));
-			margin: 0 auto;
+		.nav-links a {
+			text-decoration: none;
+		}
+
+		.nav-links a:hover {
+			color: var(--ink);
+		}
+
+		.nav-download {
+			padding: 9px 14px;
+			border: 1px solid rgba(20, 168, 255, 0.35);
+			border-radius: 10px;
+			background: rgba(20, 168, 255, 0.1);
+			color: #bde7ff !important;
 		}
 
 		.hero {
 			display: grid;
-			grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
-			gap: 40px;
+			grid-template-columns: minmax(0, 1.06fr) minmax(380px, 0.94fr);
 			align-items: center;
-			padding: 72px 0 48px;
+			gap: 64px;
+			min-height: 690px;
+			padding: 86px 0 76px;
+		}
+
+		.eyebrow,
+		.kicker {
+			margin: 0 0 16px;
+			color: var(--mint);
+			font-size: 0.77rem;
+			font-weight: 800;
+			letter-spacing: 0.13em;
+			text-transform: uppercase;
 		}
 
 		.eyebrow {
-			margin: 0 0 14px;
-			color: var(--accent);
-			font-weight: 700;
-			letter-spacing: 0.08em;
-			text-transform: uppercase;
-			font-size: 0.78rem;
+			display: inline-flex;
+			align-items: center;
+			gap: 10px;
+			padding: 7px 11px;
+			border: 1px solid rgba(73, 230, 177, 0.25);
+			border-radius: 999px;
+			background: rgba(73, 230, 177, 0.07);
+		}
+
+		.status-dot {
+			width: 7px;
+			height: 7px;
+			border-radius: 50%;
+			background: var(--mint);
+			box-shadow: 0 0 18px var(--mint);
 		}
 
 		h1 {
-			margin: 0;
-			font-size: clamp(2.7rem, 8vw, 5.75rem);
-			line-height: 0.96;
-			letter-spacing: 0;
+			max-width: 760px;
+			margin: 22px 0 0;
+			font-size: clamp(3.3rem, 7.5vw, 6.6rem);
+			line-height: 0.93;
+			letter-spacing: -0.065em;
 		}
 
-		.hero p {
-			max-width: 660px;
-			margin: 22px 0 0;
+		.gradient-text {
+			color: transparent;
+			background: linear-gradient(100deg, #ffffff 4%, #78ceff 56%, #58edc0);
+			background-clip: text;
+			-webkit-background-clip: text;
+		}
+
+		.lede {
+			max-width: 680px;
+			margin: 28px 0 0;
 			color: var(--muted);
-			font-size: 1.18rem;
+			font-size: clamp(1.05rem, 2vw, 1.25rem);
 		}
 
 		.actions {
 			display: flex;
 			flex-wrap: wrap;
 			gap: 12px;
-			margin-top: 30px;
+			margin-top: 34px;
 		}
 
 		.button {
 			display: inline-flex;
 			align-items: center;
 			justify-content: center;
-			min-height: 44px;
-			padding: 0 18px;
-			border-radius: 6px;
+			min-height: 48px;
+			padding: 0 19px;
 			border: 1px solid var(--line);
-			background: var(--panel);
-			color: var(--text);
-			font-weight: 700;
-		}
-
-		.button.primary {
-			border-color: var(--accent);
-			background: var(--accent);
-			color: #ffffff;
+			border-radius: 12px;
+			background: rgba(255, 255, 255, 0.035);
+			color: var(--ink);
+			font-weight: 750;
+			text-decoration: none;
+			transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
 		}
 
 		.button:hover {
-			text-decoration: none;
-			transform: translateY(-1px);
+			transform: translateY(-2px);
+			border-color: rgba(255, 255, 255, 0.28);
+			background: rgba(255, 255, 255, 0.065);
 		}
 
-		.terminal {
-			background: var(--surface);
-			border: 1px solid var(--line);
-			border-radius: 8px;
+		.button.primary {
+			border-color: transparent;
+			background: linear-gradient(135deg, var(--blue), var(--blue-2));
+			box-shadow: 0 14px 40px rgba(8, 120, 232, 0.25);
+		}
+
+		.hero-note {
+			margin: 15px 0 0;
+			color: #7f96a9;
+			font-size: 0.86rem;
+		}
+
+		.importer-window {
+			position: relative;
+			padding: 1px;
+			border-radius: 24px;
+			background: linear-gradient(135deg, rgba(137, 218, 255, 0.45), rgba(73, 230, 177, 0.06) 50%, rgba(255, 255, 255, 0.14));
 			box-shadow: var(--shadow);
+		}
+
+		.importer-window::before {
+			content: "";
+			position: absolute;
+			inset: 18% -12% -12% 25%;
+			z-index: -1;
+			border-radius: 50%;
+			background: rgba(20, 168, 255, 0.12);
+			filter: blur(40px);
+		}
+
+		.window-inner {
 			overflow: hidden;
+			border-radius: 23px;
+			background: #101317;
 		}
 
-		.terminal-bar {
+		.window-bar {
 			display: flex;
-			gap: 8px;
-			padding: 14px;
-			border-bottom: 1px solid var(--line);
+			align-items: center;
+			justify-content: space-between;
+			min-height: 46px;
+			padding: 0 16px;
+			border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+			color: #dbe6ee;
+			font-size: 0.78rem;
 		}
 
-		.dot {
-			width: 10px;
-			height: 10px;
-			border-radius: 999px;
-			background: var(--muted);
-			opacity: 0.55;
+		.window-controls {
+			display: flex;
+			gap: 7px;
 		}
 
-		pre {
+		.window-controls span {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: #65717a;
+		}
+
+		.widget {
+			padding: 27px;
+		}
+
+		.widget h2 {
 			margin: 0;
-			padding: 22px;
-			overflow-x: auto;
-			color: var(--text);
-			font: 0.94rem/1.7 "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+			font-size: 1.45rem;
+			letter-spacing: -0.035em;
 		}
 
-		code {
-			padding: 2px 6px;
-			border-radius: 4px;
-			background: var(--code);
-			font-size: 0.92em;
+		.widget > p {
+			margin: 7px 0 22px;
+			color: #9ba5ad;
+			font-size: 0.88rem;
+			line-height: 1.4;
 		}
 
-		pre code {
-			padding: 0;
-			background: transparent;
-			font-size: inherit;
+		.field-label {
+			margin: 18px 0 8px;
+			color: #87939c;
+			font-size: 0.63rem;
+			letter-spacing: 0.08em;
+			text-transform: uppercase;
+		}
+
+		.segmented {
+			display: grid;
+			grid-template-columns: repeat(3, 1fr);
+			gap: 7px;
+		}
+
+		.segmented.two {
+			grid-template-columns: 1fr 1fr;
+		}
+
+		.segment {
+			display: grid;
+			place-items: center;
+			min-height: 40px;
+			padding: 6px;
+			border-radius: 8px;
+			background: #2f3138;
+			color: #bec5cb;
+			font-size: 0.7rem;
+			text-align: center;
+		}
+
+		.segment.selected {
+			background: #078fdc;
+			color: white;
+		}
+
+		.import-cta {
+			display: grid;
+			place-items: center;
+			min-height: 46px;
+			margin-top: 14px;
+			border-radius: 9px;
+			background: #0ba7f7;
+			color: white;
+			font-size: 0.8rem;
+			font-weight: 800;
+		}
+
+		.success {
+			margin: 11px 0 0;
+			color: #67e6a7;
+			font-size: 0.67rem;
+			line-height: 1.35;
+		}
+
+		.metrics {
+			display: grid;
+			grid-template-columns: repeat(4, 1fr);
+			gap: 1px;
+			border-top: 1px solid var(--line);
+			border-bottom: 1px solid var(--line);
+			background: var(--line);
+		}
+
+		.metric {
+			padding: 30px 18px;
+			background: var(--bg);
+			text-align: center;
+		}
+
+		.metric strong {
+			display: block;
+			color: var(--ink);
+			font-size: clamp(1.5rem, 4vw, 2.3rem);
+			letter-spacing: -0.045em;
+		}
+
+		.metric span {
+			color: var(--muted);
+			font-size: 0.82rem;
 		}
 
 		.section {
-			padding: 48px 0;
-			border-top: 1px solid var(--line);
+			padding: 104px 0;
+			border-bottom: 1px solid var(--line);
 		}
 
-		.section h2 {
-			margin: 0 0 12px;
-			font-size: clamp(1.8rem, 4vw, 2.55rem);
-			line-height: 1.1;
+		.section-heading {
+			display: grid;
+			grid-template-columns: 0.72fr 1.28fr;
+			gap: 64px;
+			align-items: end;
+			margin-bottom: 42px;
 		}
 
-		.section > p {
-			max-width: 780px;
-			margin: 0 0 26px;
+		.section-heading h2 {
+			margin: 0;
+			font-size: clamp(2.3rem, 5vw, 4.4rem);
+			line-height: 1;
+			letter-spacing: -0.055em;
+		}
+
+		.section-heading p {
+			max-width: 680px;
+			margin: 0;
 			color: var(--muted);
-			font-size: 1.04rem;
+			font-size: 1.05rem;
 		}
 
-		.grid {
+		.card-grid {
 			display: grid;
 			grid-template-columns: repeat(3, minmax(0, 1fr));
 			gap: 16px;
 		}
 
 		.card {
-			padding: 22px;
-			background: var(--panel);
+			min-height: 230px;
+			padding: 26px;
 			border: 1px solid var(--line);
-			border-radius: 8px;
+			border-radius: var(--radius);
+			background: linear-gradient(145deg, rgba(13, 27, 43, 0.86), rgba(8, 17, 29, 0.9));
+		}
+
+		.card-number {
+			display: grid;
+			place-items: center;
+			width: 36px;
+			height: 36px;
+			border: 1px solid rgba(20, 168, 255, 0.28);
+			border-radius: 11px;
+			background: rgba(20, 168, 255, 0.08);
+			color: #77ceff;
+			font-size: 0.74rem;
+			font-weight: 800;
 		}
 
 		.card h3 {
-			margin: 0 0 8px;
-			font-size: 1.03rem;
+			margin: 28px 0 8px;
+			font-size: 1.18rem;
+			letter-spacing: -0.02em;
 		}
 
 		.card p {
 			margin: 0;
 			color: var(--muted);
+			font-size: 0.92rem;
 		}
 
-		.api-list {
+		.pipeline {
 			display: grid;
+			grid-template-columns: 1fr auto 1fr auto 1.25fr;
+			align-items: stretch;
 			gap: 12px;
 		}
 
-		.api-item {
-			padding: 18px 20px;
-			background: var(--surface);
+		.pipeline-step {
+			padding: 25px;
 			border: 1px solid var(--line);
-			border-radius: 8px;
+			border-radius: var(--radius);
+			background: var(--panel);
 		}
 
-		.api-item p {
-			margin: 8px 0 0;
+		.pipeline-step small {
+			color: var(--mint);
+			font-weight: 800;
+			letter-spacing: 0.08em;
+			text-transform: uppercase;
+		}
+
+		.pipeline-step h3 {
+			margin: 8px 0 16px;
+			font-size: 1.25rem;
+		}
+
+		.layer-stack {
+			display: grid;
+			gap: 7px;
+		}
+
+		.layer-stack span,
+		.class-list span {
+			display: block;
+			padding: 9px 11px;
+			border: 1px solid rgba(255, 255, 255, 0.07);
+			border-radius: 9px;
+			background: rgba(255, 255, 255, 0.025);
+			color: #b8c7d3;
+			font: 0.72rem/1.2 "Cascadia Code", Consolas, monospace;
+		}
+
+		.layer-stack span:nth-child(2) {
+			margin-left: 10px;
+		}
+
+		.layer-stack span:nth-child(3) {
+			margin-left: 20px;
+		}
+
+		.arrow {
+			align-self: center;
+			color: #4b7b9c;
+			font-size: 1.5rem;
+		}
+
+		.split {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 18px;
+		}
+
+		.mode {
+			padding: 30px;
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			background: var(--panel);
+		}
+
+		.mode.recommended {
+			border-color: rgba(73, 230, 177, 0.25);
+			background: linear-gradient(145deg, rgba(73, 230, 177, 0.07), var(--panel));
+		}
+
+		.mode-badge {
+			display: inline-block;
+			margin-bottom: 20px;
+			padding: 5px 9px;
+			border-radius: 999px;
+			background: rgba(255, 255, 255, 0.05);
 			color: var(--muted);
+			font-size: 0.68rem;
+			font-weight: 800;
+			text-transform: uppercase;
+		}
+
+		.mode.recommended .mode-badge {
+			background: rgba(73, 230, 177, 0.1);
+			color: var(--mint);
+		}
+
+		.mode h3 {
+			margin: 0 0 8px;
+			font-size: 1.55rem;
+		}
+
+		.mode p,
+		.mode li {
+			color: var(--muted);
+		}
+
+		.mode ul {
+			padding-left: 20px;
+			margin-bottom: 0;
+		}
+
+		.code-panel {
+			display: grid;
+			grid-template-columns: 0.8fr 1.2fr;
+			gap: 40px;
+			align-items: center;
+			padding: 40px;
+			border: 1px solid var(--line);
+			border-radius: 26px;
+			background: linear-gradient(120deg, rgba(20, 168, 255, 0.08), rgba(73, 230, 177, 0.03));
+		}
+
+		.code-panel h2 {
+			margin: 0;
+			font-size: clamp(2rem, 4vw, 3.4rem);
+			line-height: 1;
+			letter-spacing: -0.05em;
+		}
+
+		.code-panel p {
+			color: var(--muted);
+		}
+
+		pre {
+			margin: 0;
+			overflow: auto;
+			padding: 24px;
+			border: 1px solid rgba(255, 255, 255, 0.08);
+			border-radius: 16px;
+			background: #030810;
+			color: #d7e9f6;
+			font: 0.8rem/1.75 "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+		}
+
+		code {
+			font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+		}
+
+		.support-grid {
+			display: grid;
+			grid-template-columns: 1.2fr 0.8fr;
+			gap: 18px;
+		}
+
+		.support-card {
+			padding: 32px;
+			border: 1px solid var(--line);
+			border-radius: var(--radius);
+			background: var(--panel);
+		}
+
+		.support-card h3 {
+			margin-top: 0;
+			font-size: 1.35rem;
+		}
+
+		.support-card p,
+		.support-card li {
+			color: var(--muted);
+		}
+
+		.support-card a {
+			color: #7dcfff;
+		}
+
+		details {
+			border-top: 1px solid var(--line);
+		}
+
+		details:last-child {
+			border-bottom: 1px solid var(--line);
+		}
+
+		summary {
+			cursor: pointer;
+			padding: 20px 4px;
+			font-weight: 750;
+		}
+
+		details p {
+			max-width: 780px;
+			margin: -6px 0 20px;
+			color: var(--muted);
+		}
+
+		.cta {
+			padding: 96px 0;
+			text-align: center;
+		}
+
+		.cta-inner {
+			padding: 56px 30px;
+			border: 1px solid rgba(20, 168, 255, 0.2);
+			border-radius: 28px;
+			background:
+				radial-gradient(circle at 50% 0%, rgba(20, 168, 255, 0.18), transparent 26rem),
+				var(--panel);
+		}
+
+		.cta h2 {
+			max-width: 760px;
+			margin: 0 auto;
+			font-size: clamp(2.25rem, 5vw, 4.4rem);
+			line-height: 1;
+			letter-spacing: -0.055em;
+		}
+
+		.cta p {
+			max-width: 650px;
+			margin: 18px auto 0;
+			color: var(--muted);
+		}
+
+		.cta .actions {
+			justify-content: center;
 		}
 
 		footer {
-			padding: 42px 0;
+			padding: 34px 0 48px;
 			border-top: 1px solid var(--line);
 			color: var(--muted);
-			font-size: 0.94rem;
+			font-size: 0.86rem;
 		}
 
-		@media (max-width: 820px) {
-			.nav-inner {
-				height: auto;
-				padding: 16px 0;
-				align-items: flex-start;
-				flex-direction: column;
-				gap: 10px;
+		.footer-inner {
+			display: flex;
+			justify-content: space-between;
+			gap: 24px;
+		}
+
+		.footer-links {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 18px;
+		}
+
+		.footer-links a {
+			text-decoration: none;
+		}
+
+		@media (max-width: 940px) {
+			.hero {
+				grid-template-columns: 1fr;
+				min-height: auto;
 			}
 
-			.nav-links {
-				flex-wrap: wrap;
+			.importer-window {
+				width: min(520px, 100%);
+			}
+
+			.section-heading,
+			.code-panel {
+				grid-template-columns: 1fr;
+			}
+
+			.card-grid {
+				grid-template-columns: repeat(2, 1fr);
+			}
+
+			.pipeline {
+				grid-template-columns: 1fr;
+			}
+
+			.arrow {
+				transform: rotate(90deg);
+				justify-self: center;
+			}
+		}
+
+		@media (max-width: 680px) {
+			.wrap {
+				width: min(100% - 28px, 1160px);
+			}
+
+			.nav-inner {
+				padding: 14px 0;
+				align-items: flex-start;
+				flex-direction: column;
 				gap: 12px;
 			}
 
-			.hero {
-				grid-template-columns: 1fr;
-				padding-top: 48px;
+			.nav-links {
+				width: 100%;
+				gap: 14px;
+				overflow-x: auto;
+				padding-bottom: 2px;
 			}
 
-			.grid {
+			.hero {
+				padding: 62px 0;
+				gap: 44px;
+			}
+
+			h1 {
+				font-size: clamp(3.2rem, 19vw, 5rem);
+			}
+
+			.metrics {
+				grid-template-columns: 1fr 1fr;
+			}
+
+			.section {
+				padding: 76px 0;
+			}
+
+			.card-grid,
+			.split,
+			.support-grid {
 				grid-template-columns: 1fr;
+			}
+
+			.widget {
+				padding: 22px 18px;
+			}
+
+			.segmented {
+				grid-template-columns: 1fr;
+			}
+
+			.segmented.two {
+				grid-template-columns: 1fr 1fr;
+			}
+
+			.code-panel {
+				padding: 26px 18px;
+			}
+
+			.footer-inner {
+				flex-direction: column;
+			}
+		}
+
+		@media (prefers-reduced-motion: reduce) {
+			html {
+				scroll-behavior: auto;
+			}
+
+			.button {
+				transition: none;
 			}
 		}
 	</style>
 </head>
 <body>
-	<nav class="site-nav">
-		<div class="nav-inner">
-			<a class="brand" href="#">UI Importer Pro</a>
+	<a class="skip-link" href="#main">Skip to content</a>
+
+	<nav class="site-nav" aria-label="Main navigation">
+		<div class="wrap nav-inner">
+			<a class="brand" href="#">
+				<span class="brand-mark" aria-hidden="true">UI</span>
+				<span>UI Importer Pro</span>
+			</a>
 			<div class="nav-links">
-				<a href="#docs">Docs</a>
-				<a href="#api">API</a>
-				<a href="#organizer">AutoLayout</a>
-				<a href="https://github.com/qzhcore/UI-Importer-Pro-/releases">Releases</a>
+				<a href="#workflow">Workflow</a>
+				<a href="#responsive">Responsive</a>
+				<a href="#scripting">Scripting</a>
+				<a href="#support">Support</a>
 				<a href="https://github.com/qzhcore/UI-Importer-Pro-">GitHub</a>
+				<a class="nav-download" href="https://github.com/qzhcore/UI-Importer-Pro-/releases/latest">Download beta</a>
 			</div>
 		</div>
 	</nav>
 
-	<main>
-		<section class="hero">
-			<div>
-				<p class="eyebrow">Roblox Studio Plugin</p>
-				<h1>UI Importer Pro</h1>
-				<p>Convert imported, offset-heavy Roblox UI into responsive layouts with scale conversion, aspect constraints, and automatic layout cleanup.</p>
-				<div class="actions">
-					<a class="button primary" href="https://github.com/qzhcore/UI-Importer-Pro-/releases/latest">Download Plugin</a>
-					<a class="button" href="#docs">Get Started</a>
+	<main id="main">
+		<div class="wrap">
+			<section class="hero">
+				<div>
+					<p class="eyebrow"><span class="status-dot"></span> Public beta 0.3.0</p>
+					<h1>Design files in. <span class="gradient-text">Roblox UI out.</span></h1>
+					<p class="lede">Convert layered Photoshop PSD and native Figma <code>.fig</code> files into organized, responsive, script-ready Roblox interfaces—directly in Studio.</p>
+					<div class="actions">
+						<a class="button primary" href="https://github.com/qzhcore/UI-Importer-Pro-/releases/latest">Download UI Importer Pro</a>
+						<a class="button" href="https://github.com/qzhcore/UI-Importer-Pro-/blob/main/docs/GUIDE.md">Read the guide</a>
+					</div>
+					<p class="hero-note">Beta software · Keep your source files · Test before shipping</p>
 				</div>
-			</div>
 
-			<div class="terminal" aria-label="Install commands">
-				<div class="terminal-bar">
-					<span class="dot"></span>
-					<span class="dot"></span>
-					<span class="dot"></span>
+				<div class="importer-window" aria-label="UI Importer Pro plugin preview">
+					<div class="window-inner">
+						<div class="window-bar">
+							<span>UI Importer Pro</span>
+							<span class="window-controls" aria-hidden="true"><span></span><span></span></span>
+						</div>
+						<div class="widget">
+							<h2>UI Importer Pro</h2>
+							<p>Import layered Photoshop or Figma designs as responsive Roblox UI with clean names, hierarchy, and styling.</p>
+							<div class="field-label">Root class · created in StarterGui</div>
+							<div class="segmented">
+								<span class="segment selected">ScreenGui</span>
+								<span class="segment">SurfaceGui</span>
+								<span class="segment">BillboardGui</span>
+							</div>
+							<div class="field-label">Screen sizing</div>
+							<div class="segmented two">
+								<span class="segment">Adaptive</span>
+								<span class="segment selected">Preserve aspect</span>
+							</div>
+							<div class="import-cta">Import Design File…</div>
+							<p class="success">Imported 70 layers into StarterGui and embedded image content. Photoshop effects preserved.</p>
+						</div>
+					</div>
 				</div>
-				<pre><code>git clone https://github.com/qzhcore/UI-Importer-Pro-.git
-cd UI-Importer-Pro-
-aftman install
-rojo build default.project.json --output UIImporterPro.rbxm</code></pre>
-			</div>
+			</section>
+		</div>
+
+		<section class="metrics" aria-label="Beta capabilities">
+			<div class="metric"><strong>PSD</strong><span>RGB · 8-bit · Raw/RLE</span></div>
+			<div class="metric"><strong>.fig</strong><span>Native Kiwi scene graph</span></div>
+			<div class="metric"><strong>3</strong><span>LayerCollector root types</span></div>
+			<div class="metric"><strong>1 undo</strong><span>Removes the complete import</span></div>
 		</section>
 
-		<section class="section" id="docs">
-			<h2>What It Does</h2>
-			<p>UI Importer Pro cleans up UI that was imported as fixed pixel frames. It keeps the visual layout intact while converting the hierarchy into a better Roblox-native structure.</p>
-			<div class="grid">
-				<article class="card">
-					<h3>Studio Install</h3>
-					<p>Download <code>UIImporterPro.rbxm</code>, place it in Studio's <code>Plugins Folder</code>, restart Studio, then use the <code>FixScale</code> toolbar button.</p>
-				</article>
-				<article class="card">
-					<h3>Scale Conversion</h3>
-					<p>Turns absolute <code>Size</code>, <code>Position</code>, padding, grid cells, and canvas offsets into responsive scale values.</p>
-				</article>
-				<article class="card">
-					<h3>Layout Organization</h3>
-					<p>Detects rows, columns, grids, page stacks, and table-like groups, then adds the best matching Roblox layout object.</p>
-				</article>
-				<article class="card">
-					<h3>Studio Safe</h3>
-					<p>Uses undo waypoints and avoids overriding child positions when a layout object should control placement.</p>
-				</article>
-			</div>
-		</section>
+		<div class="wrap">
+			<section class="section" id="workflow">
+				<div class="section-heading">
+					<div>
+						<p class="kicker">From file to hierarchy</p>
+						<h2>A clean handoff in six steps.</h2>
+					</div>
+					<p>The importer validates the file, rebuilds its structure under <code>StarterGui</code>, embeds supported artwork, and keeps source metadata for reliable scripting.</p>
+				</div>
 
-		<section class="section" id="organizer">
-			<h2>AutoLayout Pass</h2>
-			<p>Before scaling, the organizer scans selected UI containers and applies layout helpers only when the geometry is clear enough to infer safely.</p>
-			<div class="grid">
-				<article class="card">
-					<h3><code>UIListLayout</code></h3>
-					<p>Applied to aligned horizontal or vertical child groups, with padding inferred from the average gap.</p>
-				</article>
-				<article class="card">
-					<h3><code>UIGridLayout</code></h3>
-					<p>Applied to uniform matrix groups with consistent row and column counts.</p>
-				</article>
-				<article class="card">
-					<h3><code>UITableLayout</code></h3>
-					<p>Applied to table-like row and column groups where children are aligned but not uniformly sized.</p>
-				</article>
-				<article class="card">
-					<h3><code>UIPageLayout</code></h3>
-					<p>Applied when children look like page-sized panels inside the same container.</p>
-				</article>
-				<article class="card">
-					<h3><code>UIScale</code></h3>
-					<p>Local scale objects are accounted for when calculating the final responsive size.</p>
-				</article>
-				<article class="card">
-					<h3><code>ScrollingFrame</code></h3>
-					<p><code>CanvasSize</code> offsets are converted relative to the frame's own absolute size.</p>
-				</article>
-			</div>
-		</section>
+				<div class="card-grid">
+					<article class="card">
+						<span class="card-number">01</span>
+						<h3>Install the plugin</h3>
+						<p>Place the release <code>.rbxm</code> in Studio's Plugins Folder, restart Studio, and open UI Importer Pro.</p>
+					</article>
+					<article class="card">
+						<span class="card-number">02</span>
+						<h3>Prepare layer names</h3>
+						<p>Use names such as <code>[TextButton] Buy</code> or <code>[Scroll] Inventory</code> when the intended Roblox class matters.</p>
+					</article>
+					<article class="card">
+						<span class="card-number">03</span>
+						<h3>Choose the target</h3>
+						<p>Generate a ScreenGui for menus, SurfaceGui for Parts, or BillboardGui for world-space UI.</p>
+					</article>
+					<article class="card">
+						<span class="card-number">04</span>
+						<h3>Choose sizing</h3>
+						<p>Fill the safe screen with Adaptive or protect artwork proportions with Preserve aspect.</p>
+					</article>
+					<article class="card">
+						<span class="card-number">05</span>
+						<h3>Import and inspect</h3>
+						<p>The selected result appears under StarterGui with a Canvas, embedded artwork, tags, and attributes.</p>
+					</article>
+					<article class="card">
+						<span class="card-number">06</span>
+						<h3>Script and test</h3>
+						<p>Connect the named semantic controls, then test phone, tablet, desktop, and gamepad behavior.</p>
+					</article>
+				</div>
+			</section>
 
-		<section class="section" id="api">
-			<h2>API Reference</h2>
-			<p>The plugin is modular so the organizer, parser, and scaler can evolve independently.</p>
-			<div class="api-list">
-				<div class="api-item">
-					<strong><code>LayoutOrganizer.ProcessRecursive(root: Instance): number</code></strong>
-					<p>Infers and inserts layout objects for supported UI containers.</p>
+			<section class="section">
+				<div class="section-heading">
+					<div>
+						<p class="kicker">Native output</p>
+						<h2>Your layers become Roblox objects.</h2>
+					</div>
+					<p>Groups become containers, controls become interactive classes, and important design metadata follows every generated instance.</p>
 				</div>
-				<div class="api-item">
-					<strong><code>ScalingEngine.ProcessRecursive(root: Instance): number</code></strong>
-					<p>Converts supported descendants into scale-based responsive sizing.</p>
+
+				<div class="pipeline" aria-label="Import pipeline">
+					<div class="pipeline-step">
+						<small>Input</small>
+						<h3>Design layers</h3>
+						<div class="layer-stack">
+							<span>Shop Panel</span>
+							<span>[Text] Item Name</span>
+							<span>[Button] Equip</span>
+						</div>
+					</div>
+					<div class="arrow" aria-hidden="true">→</div>
+					<div class="pipeline-step">
+						<small>Importer</small>
+						<h3>Parse and organize</h3>
+						<div class="layer-stack">
+							<span>Clean names</span>
+							<span>Relative geometry</span>
+							<span>Embedded artwork</span>
+						</div>
+					</div>
+					<div class="arrow" aria-hidden="true">→</div>
+					<div class="pipeline-step">
+						<small>StarterGui</small>
+						<h3>Script-ready hierarchy</h3>
+						<div class="class-list">
+							<span>Frame · ShopPanel</span>
+							<span>TextLabel · ItemName</span>
+							<span>ImageButton · EquipButton</span>
+						</div>
+					</div>
 				</div>
-				<div class="api-item">
-					<strong><code>FileParser.processImported(instances: { Instance }): number</code></strong>
-					<p>Filters Studio selection, runs the organizer pass, then runs the scaler pass.</p>
+			</section>
+
+			<section class="section" id="responsive">
+				<div class="section-heading">
+					<div>
+						<p class="kicker">Responsive choices</p>
+						<h2>Pick the behavior your design expects.</h2>
+					</div>
+					<p>No single mode is right for every composition. The plugin makes the tradeoff explicit before the import.</p>
 				</div>
-			</div>
-		</section>
+
+				<div class="split">
+					<article class="mode">
+						<span class="mode-badge">Flexible layouts</span>
+						<h3>Adaptive</h3>
+						<p>Fills the device-safe display using scale-based geometry.</p>
+						<ul>
+							<li>Best for full-screen menus and HUDs</li>
+							<li>Uses the available screen area</li>
+							<li>Can stretch fixed-ratio artwork</li>
+						</ul>
+					</article>
+					<article class="mode recommended">
+						<span class="mode-badge">Artwork-heavy UI</span>
+						<h3>Preserve aspect</h3>
+						<p>Locks the canvas to the source document's aspect ratio.</p>
+						<ul>
+							<li>Prevents visual distortion</li>
+							<li>Best for illustrated panels and menus</li>
+							<li>May letterbox on different screens</li>
+						</ul>
+					</article>
+				</div>
+			</section>
+
+			<section class="section" id="scripting">
+				<div class="code-panel">
+					<div>
+						<p class="kicker">Semantic overlays</p>
+						<h2>Script the controls, keep the artwork.</h2>
+						<p>When Photoshop effects are present, <code>RenderedDesign</code> preserves the exact look while aligned Roblox controls remain available for interaction.</p>
+						<a class="button" href="https://github.com/qzhcore/UI-Importer-Pro-/blob/main/docs/SCRIPTING.md">Open scripting guide</a>
+					</div>
+					<pre><code>local gui = playerGui:WaitForChild(
+    "DGfishingGameFrame5"
+)
+local canvas = gui:WaitForChild("Canvas")
+local equip = canvas:FindFirstChild(
+    "EquipButton",
+    true
+)
+
+if equip and equip:IsA("GuiButton") then
+    equip.Activated:Connect(function()
+        print("Equip selected")
+    end)
+end</code></pre>
+				</div>
+			</section>
+
+			<section class="section" id="support">
+				<div class="section-heading">
+					<div>
+						<p class="kicker">Use it with confidence</p>
+						<h2>Guides, support, and honest limits.</h2>
+					</div>
+					<p>This beta reports unsupported data instead of pretending an import succeeded. Start with the guide, then send a reproducible report when something is wrong.</p>
+				</div>
+
+				<div class="support-grid">
+					<article class="support-card">
+						<h3>Documentation</h3>
+						<ul>
+							<li><a href="https://github.com/qzhcore/UI-Importer-Pro-/blob/main/docs/GUIDE.md">Complete user guide</a></li>
+							<li><a href="https://github.com/qzhcore/UI-Importer-Pro-/blob/main/docs/SCRIPTING.md">Scripting imported UI</a></li>
+							<li><a href="https://github.com/qzhcore/UI-Importer-Pro-/blob/main/docs/TROUBLESHOOTING.md">Troubleshooting and limitations</a></li>
+							<li><a href="https://github.com/qzhcore/UI-Importer-Pro-/blob/main/docs/LAUNCH_CHECKLIST.md">Beta launch checklist</a></li>
+							<li><a href="https://github.com/qzhcore/UI-Importer-Pro-/blob/main/CHANGELOG.md">Changelog</a></li>
+						</ul>
+					</article>
+					<article class="support-card">
+						<h3>Community</h3>
+						<p>The official Discord is being prepared for beta support, showcases, bug reports, and feature requests.</p>
+						<p><a href="https://github.com/qzhcore/UI-Importer-Pro-/issues">Use GitHub Issues now →</a></p>
+					</article>
+				</div>
+
+				<div style="margin-top: 44px">
+					<details>
+						<summary>Which PSD files are supported?</summary>
+						<p>Standard PSD, RGB, 8-bit documents with raw or RLE layer pixels, up to Studio's 100 MB file-picker limit. PSB, CMYK, 16/32-bit, and ZIP-compressed individual layer pixels are not supported yet.</p>
+					</details>
+					<details>
+						<summary>Why is there a RenderedDesign object?</summary>
+						<p>It preserves the exact Photoshop composite when the source uses effects Roblox cannot recreate natively. Transparent, named Roblox objects remain aligned above it for scripting.</p>
+					</details>
+					<details>
+						<summary>Does responsive mean every design automatically works in portrait?</summary>
+						<p>No. The importer produces scale-based geometry and safe-area behavior, but a flat desktop composition cannot invent a purpose-designed mobile layout. Test every target device.</p>
+					</details>
+					<details>
+						<summary>What does native Figma support include?</summary>
+						<p>Frames, groups, components, vectors, shapes, text, solid fills, corners, strokes, and hierarchy. Embedded bitmap fills are placeholders in this beta.</p>
+					</details>
+				</div>
+			</section>
+
+			<section class="cta">
+				<div class="cta-inner">
+					<h2>Skip the rebuild. Start with a real hierarchy.</h2>
+					<p>Install the beta, keep your source design safe, and turn the next UI handoff into an organized Roblox starting point.</p>
+					<div class="actions">
+						<a class="button primary" href="https://github.com/qzhcore/UI-Importer-Pro-/releases/latest">Download the latest beta</a>
+						<a class="button" href="https://github.com/qzhcore/UI-Importer-Pro-/issues/new?template=bug_report.yml">Report a bug</a>
+					</div>
+				</div>
+			</section>
+		</div>
 	</main>
 
 	<footer>
-		<main>Built for Roblox Studio UI cleanup. Inspired by clean docs systems like Knit, delivered as static GitHub Pages.</main>
+		<div class="wrap footer-inner">
+			<span>UI Importer Pro · Beta software · MIT licensed</span>
+			<div class="footer-links">
+				<a href="https://github.com/qzhcore/UI-Importer-Pro-">GitHub</a>
+				<a href="https://github.com/qzhcore/UI-Importer-Pro-/releases">Releases</a>
+				<a href="https://github.com/qzhcore/UI-Importer-Pro-/blob/main/PRIVACY.md">Privacy</a>
+				<a href="https://github.com/qzhcore/UI-Importer-Pro-/blob/main/SECURITY.md">Security</a>
+				<a href="https://github.com/qzhcore/UI-Importer-Pro-/blob/main/CODE_OF_CONDUCT.md">Conduct</a>
+			</div>
+		</div>
 	</footer>
 </body>
 </html>

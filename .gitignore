@@ -11,6 +11,8 @@ Packages/
 ServerPackages/
 node_modules/
 vendor/
+/work/
+/roblox.yml
 
 # --- LSP & Analysis ---
 .luau-lsp/

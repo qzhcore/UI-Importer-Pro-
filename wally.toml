@@ -1,7 +1,7 @@
 [package]
 name = "qzhcore/ui-importer-pro"
-description = "Professional UI scaling and import toolchain"
-version = "0.1.0"
+description = "Convert layered PSD and Figma designs into responsive, script-ready Roblox UI"
+version = "0.3.0-beta.3"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 
