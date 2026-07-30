@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a focused improvement to UI Importer Pro
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Roblox workflow problem
+      description: What part of design handoff is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed behavior
+      description: Describe the result, not only the implementation.
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Relevant format
+      options:
+        - PSD
+        - Native Figma .fig
+        - Both
+        - Other
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Current workaround

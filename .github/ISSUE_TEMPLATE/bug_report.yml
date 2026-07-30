@@ -1,0 +1,85 @@
+name: Bug report
+description: Report a reproducible problem with UI Importer Pro
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not upload confidential PSD or Figma files. Replace them with a minimal test file when possible.
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version
+      placeholder: 0.3.0-beta.3
+    validations:
+      required: true
+  - type: input
+    id: studio
+    attributes:
+      label: Roblox Studio version and operating system
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Design format
+      options:
+        - PSD
+        - Native Figma .fig
+    validations:
+      required: true
+  - type: input
+    id: document
+    attributes:
+      label: Document properties
+      description: Include dimensions, color mode, bit depth, and compression when known.
+    validations:
+      required: true
+  - type: dropdown
+    id: root
+    attributes:
+      label: Root class
+      options:
+        - ScreenGui
+        - SurfaceGui
+        - BillboardGui
+    validations:
+      required: true
+  - type: dropdown
+    id: sizing
+    attributes:
+      label: Sizing mode
+      options:
+        - Adaptive
+        - Preserve aspect
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Studio Output
+      description: Paste the complete first error and stack trace.
+      render: text
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I tested the newest beta.
+          required: true
+        - label: I removed passwords, tokens, private artwork, and personal information.
+          required: true
