@@ -1,4 +1,4 @@
-local Deflate = if script then require(script.Parent.Deflate) else require("./Deflate")
+local Deflate = require(script.Parent.Deflate)
 
 local FigParser = {}
 
