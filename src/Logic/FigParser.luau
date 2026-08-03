@@ -136,7 +136,10 @@ end
 function Reader:uint64()
 	local value = 0
 	local multiplier = 1
-	for _ = 1, 10 do
+	-- Kiwi uses seven payload bits for the first eight bytes. The ninth
+	-- and final byte stores all eight of its bits, so bit 7 is data there
+	-- instead of another continuation flag.
+	for _ = 1, 8 do
 		local nextByte = self:byte()
 		value += bit32.band(nextByte, 127) * multiplier
 		if nextByte < 128 then
@@ -144,7 +147,7 @@ function Reader:uint64()
 		end
 		multiplier *= 128
 	end
-	error("Invalid Kiwi 64-bit unsigned integer.")
+	return value + self:byte() * multiplier
 end
 
 function Reader:int()
@@ -437,6 +440,7 @@ local function buildDocument(message, version)
 	local flatLayers = {}
 	local layerIndex = 0
 	local imageWarningAdded = false
+	local wrapWarningAdded = false
 
 	local function convertNode(node, parentMatrix)
 		if node.visible == false then
@@ -444,7 +448,15 @@ local function buildDocument(message, version)
 		end
 
 		local matrix = multiplyMatrix(parentMatrix, node.transform or IDENTITY_MATRIX)
-		local size = node.size or (node.textData and node.textData.layoutSize) or { x = 1, y = 1 }
+		-- IMPORTANT: unlike the previous version, the fallback here is {x=0,y=0}
+		-- instead of {x=1,y=1}. GROUP nodes (and a handful of other Figma node
+		-- types) don't always carry their own `size` field, since Figma derives
+		-- their bounds from their children. Forcing a fake 1x1 size made that
+		-- case indistinguishable from "a real, tiny layer", which meant
+		-- UIBuilder's own children-bounding-box fallback (see getBounds in
+		-- UIBuilder.luau) could never kick in for sizeless nodes. Reporting a
+		-- true 0x0 here lets that fallback do its job.
+		local size = node.size or (node.textData and node.textData.layoutSize) or { x = 0, y = 0 }
 		local scaleX = math.sqrt(matrix.m00 * matrix.m00 + matrix.m10 * matrix.m10)
 		local scaleY = math.sqrt(matrix.m01 * matrix.m01 + matrix.m11 * matrix.m11)
 		local fill = firstVisiblePaint(node.fillPaints)
@@ -463,14 +475,32 @@ local function buildDocument(message, version)
 			)
 		end
 
+		if
+			(node.stackMode == "HORIZONTAL" or node.stackMode == "VERTICAL")
+			and node.layoutWrap == "WRAP"
+			and not wrapWarningAdded
+		then
+			wrapWarningAdded = true
+			table.insert(
+				warnings,
+				string.format(
+					"Frame '%s' uses Figma's wrapping auto-layout, which UIListLayout cannot reproduce; children were imported as a single non-wrapping row/column.",
+					node.name or "Unnamed"
+				)
+			)
+		end
+
 		layerIndex += 1
 		local layer = {
 			index = layerIndex,
 			name = node.name or node.type or "FigmaLayer",
 			left = matrix.m02,
 			top = matrix.m12,
-			width = math.max(1, (size.x or 1) * scaleX),
-			height = math.max(1, (size.y or 1) * scaleY),
+			-- No forced 1px minimum anymore (see the `size` fallback above) - a
+			-- node with no real size now legitimately reports 0 so callers can
+			-- tell "no size data" apart from "a genuinely tiny layer".
+			width = math.max(0, (size.x or 0) * scaleX),
+			height = math.max(0, (size.y or 0) * scaleY),
 			opacity = math.floor(math.clamp(node.opacity or 1, 0, 1) * 255 + 0.5),
 			visible = true,
 			blendMode = node.blendMode or "NORMAL",
@@ -485,12 +515,39 @@ local function buildDocument(message, version)
 			strokeThickness = node.strokeWeight,
 			rotation = math.deg(math.atan2(matrix.m10, matrix.m00)),
 			figmaType = node.type,
+
+			-- Auto-layout ("stack") properties of THIS node, when it is itself
+			-- an auto-layout frame/container.
 			layoutMode = node.stackMode,
 			layoutGap = node.stackSpacing,
 			paddingLeft = node.stackPaddingLeft,
 			paddingRight = node.stackPaddingRight,
 			paddingTop = node.stackPaddingTop,
 			paddingBottom = node.stackPaddingBottom,
+			primaryAxisAlignItems = node.primaryAxisAlignItems,
+			counterAxisAlignItems = node.counterAxisAlignItems,
+			primaryAxisSizingMode = node.primaryAxisSizingMode,
+			counterAxisSizingMode = node.counterAxisSizingMode,
+
+			-- How THIS node participates in its PARENT's auto-layout, when the
+			-- parent is an auto-layout frame. layoutPositioning == "ABSOLUTE"
+			-- means the designer turned on Figma's "Absolute position" toggle,
+			-- which pulls the node out of the auto-layout flow and makes it
+			-- behave like a normal constraint-positioned child again.
+			layoutAlign = node.layoutAlign,
+			layoutGrow = node.layoutGrow,
+			layoutPositioning = node.layoutPositioning,
+
+			-- Figma's resize constraints (MIN/MAX/CENTER/STRETCH/SCALE per
+			-- axis). Only meaningful when this node is NOT being positioned by
+			-- a parent auto-layout frame, but we capture it unconditionally
+			-- since layoutPositioning == "ABSOLUTE" children need it too.
+			constraints = if node.constraints
+				then {
+					horizontal = node.constraints.horizontal,
+					vertical = node.constraints.vertical,
+				}
+				else nil,
 		}
 
 		table.insert(flatLayers, layer)
