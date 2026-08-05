@@ -1,5 +1,6 @@
 local AssetUploader = require(script.Parent.AssetUploader)
 local FigmaLayout = require(script.Parent.FigmaLayout)
+local FigmaVisual = require(script.Parent.FigmaVisual)
 
 local UIBuilder = {}
 
@@ -90,6 +91,74 @@ local MODIFIER_ROLES = {
 	UIGradient = true,
 	UIPadding = true,
 	UIScale = true,
+}
+
+local FONT_FAMILY_ALIASES = {
+	["arial"] = "Arimo",
+	["fredoka"] = "FredokaOne",
+	["gotham"] = "BuilderSans",
+	["helvetica"] = "Arimo",
+	["inter"] = "BuilderSans",
+	["sfpro"] = "BuilderSans",
+	["sfprodisplay"] = "BuilderSans",
+	["sfprotext"] = "BuilderSans",
+	["sourcesanspro"] = "SourceSansPro",
+}
+
+local ROBLOX_FONT_NAMES = {
+	amaticsc = "AmaticSC",
+	arimo = "Arimo",
+	bangers = "Bangers",
+	buildersans = "BuilderSans",
+	builderextended = "BuilderExtended",
+	buildermono = "BuilderMono",
+	creepster = "Creepster",
+	denkone = "DenkOne",
+	fredokaone = "FredokaOne",
+	inconsolata = "Inconsolata",
+	jura = "Jura",
+	luckiestguy = "LuckiestGuy",
+	merriweather = "Merriweather",
+	montserrat = "Montserrat",
+	nunito = "Nunito",
+	oswald = "Oswald",
+	roboto = "Roboto",
+	robotocondensed = "RobotoCondensed",
+	robotomono = "RobotoMono",
+	sourcesanspro = "SourceSansPro",
+	ubuntu = "Ubuntu",
+}
+
+local FONT_WEIGHTS = {
+	{ value = 100, enum = Enum.FontWeight.Thin },
+	{ value = 200, enum = Enum.FontWeight.ExtraLight },
+	{ value = 300, enum = Enum.FontWeight.Light },
+	{ value = 400, enum = Enum.FontWeight.Regular },
+	{ value = 500, enum = Enum.FontWeight.Medium },
+	{ value = 600, enum = Enum.FontWeight.SemiBold },
+	{ value = 700, enum = Enum.FontWeight.Bold },
+	{ value = 800, enum = Enum.FontWeight.ExtraBold },
+	{ value = 900, enum = Enum.FontWeight.Heavy },
+}
+
+local TEXT_X_ALIGN = {
+	LEFT = Enum.TextXAlignment.Left,
+	CENTER = Enum.TextXAlignment.Center,
+	RIGHT = Enum.TextXAlignment.Right,
+	JUSTIFIED = Enum.TextXAlignment.Left,
+}
+
+local TEXT_Y_ALIGN = {
+	TOP = Enum.TextYAlignment.Top,
+	CENTER = Enum.TextYAlignment.Center,
+	BOTTOM = Enum.TextYAlignment.Bottom,
+}
+
+local IMAGE_SCALE_TYPES = {
+	STRETCH = Enum.ScaleType.Stretch,
+	FIT = Enum.ScaleType.Fit,
+	FILL = Enum.ScaleType.Crop,
+	TILE = Enum.ScaleType.Tile,
 }
 
 local function containsWord(value, word)
@@ -299,19 +368,139 @@ local function applyAutoLayoutChildSize(instance, layer, bounds, parentLayout)
 	end
 end
 
+local function normalizedFontKey(value)
+	return string.lower(string.gsub(value or "", "[^%w]", ""))
+end
+
+local function nearestFontWeight(value)
+	local best = FONT_WEIGHTS[4]
+	local bestDistance = math.huge
+	for _, candidate in ipairs(FONT_WEIGHTS) do
+		local distance = math.abs((value or 400) - candidate.value)
+		if distance < bestDistance then
+			best = candidate
+			bestDistance = distance
+		end
+	end
+	return best.enum
+end
+
+local function applyFont(instance, layer)
+	local originalFamily = layer.fontFamily
+	local key = normalizedFontKey(originalFamily)
+	local fontName = FONT_FAMILY_ALIASES[key] or ROBLOX_FONT_NAMES[key]
+	local approximated = fontName == nil or FONT_FAMILY_ALIASES[key] ~= nil
+	fontName = fontName or "BuilderSans"
+	local fontStyle = if layer.fontItalic then Enum.FontStyle.Italic else Enum.FontStyle.Normal
+	local ok, fontFace = pcall(Font.fromName, fontName, nearestFontWeight(layer.fontWeight), fontStyle)
+	if ok then
+		instance.FontFace = fontFace
+	else
+		instance.Font = Enum.Font.Gotham
+		approximated = true
+	end
+	if originalFamily and approximated then
+		instance:SetAttribute("UIImporterOriginalFont", originalFamily)
+		instance:SetAttribute("UIImporterFontFallback", fontName)
+	end
+end
+
+local function normalizedGradientStops(gradient)
+	local stops = {}
+	for _, stop in ipairs(gradient and gradient.gradientStops or {}) do
+		if stop.color then
+			table.insert(stops, {
+				position = math.clamp(stop.position or 0, 0, 1),
+				color = stop.color,
+			})
+		end
+	end
+	table.sort(stops, function(left, right)
+		return left.position < right.position
+	end)
+	if #stops == 0 then
+		return nil
+	elseif #stops == 1 then
+		stops = {
+			{ position = 0, color = stops[1].color },
+			{ position = 1, color = stops[1].color },
+		}
+	else
+		if stops[1].position > 0 then
+			table.insert(stops, 1, { position = 0, color = stops[1].color })
+		end
+		if stops[#stops].position < 1 then
+			table.insert(stops, { position = 1, color = stops[#stops].color })
+		end
+	end
+
+	if #stops > 20 then
+		local reduced = table.create(20)
+		for index = 1, 20 do
+			local sourceIndex = math.floor((index - 1) * (#stops - 1) / 19 + 1.5)
+			reduced[index] = stops[math.clamp(sourceIndex, 1, #stops)]
+		end
+		stops = reduced
+	end
+
+	for index = 2, #stops - 1 do
+		local minimum = stops[index - 1].position + 0.0001
+		local maximum = 1 - (#stops - index) * 0.0001
+		stops[index].position = math.clamp(stops[index].position, minimum, maximum)
+	end
+	stops[1].position = 0
+	stops[#stops].position = 1
+	return stops
+end
+
+local function addGradient(parent, gradient, name)
+	local stops = normalizedGradientStops(gradient)
+	if not stops then
+		return nil
+	end
+	local colors = table.create(#stops)
+	local transparencies = table.create(#stops)
+	for index, stop in ipairs(stops) do
+		colors[index] = ColorSequenceKeypoint.new(stop.position, Color3.new(stop.color.r, stop.color.g, stop.color.b))
+		transparencies[index] = NumberSequenceKeypoint.new(stop.position, 1 - (stop.color.a or 1))
+	end
+
+	local visual = FigmaVisual.gradientGeometry(gradient)
+	local uiGradient = Instance.new("UIGradient")
+	uiGradient.Name = name
+	uiGradient.Color = ColorSequence.new(colors)
+	uiGradient.Transparency = NumberSequence.new(transparencies)
+	uiGradient.Rotation = visual.rotation
+	uiGradient.Offset = Vector2.new(visual.offsetX, visual.offsetY)
+	uiGradient:SetAttribute("UIImporterGenerated", true)
+	uiGradient:SetAttribute("UIImporterGradientType", gradient.type)
+	if gradient.type ~= "GRADIENT_LINEAR" then
+		uiGradient:SetAttribute("UIImporterApproximation", "Roblox UIGradient is linear")
+	end
+	uiGradient.Parent = parent
+	return uiGradient
+end
+
 local function styleTextObject(instance, layer)
 	instance.BackgroundTransparency = 1
 	instance.BorderSizePixel = 0
-	instance.Font = Enum.Font.Gotham
+	applyFont(instance, layer)
 	instance.Text = layer.text or stripRoleMarkers(layer.name)
-	instance.TextColor3 = if layer.backgroundColor
-		then Color3.new(layer.backgroundColor.r, layer.backgroundColor.g, layer.backgroundColor.b)
+	instance.TextColor3 = if layer.fillGradient
+		then Color3.new(1, 1, 1)
+		elseif layer.backgroundColor then Color3.new(
+			layer.backgroundColor.r,
+			layer.backgroundColor.g,
+			layer.backgroundColor.b
+		)
 		else Color3.new(1, 1, 1)
 	instance.TextScaled = true
-	instance.TextTransparency = 1 - (layer.opacity / 255)
+	local fillOpacity = if layer.fillGradient then 1 else 1 - (layer.backgroundTransparency or 0)
+	instance.TextTransparency = 1 - (layer.opacity / 255) * fillOpacity
+	instance.TextStrokeTransparency = 1
 	instance.TextWrapped = true
-	instance.TextXAlignment = Enum.TextXAlignment.Left
-	instance.TextYAlignment = Enum.TextYAlignment.Center
+	instance.TextXAlignment = TEXT_X_ALIGN[layer.textAlignHorizontal] or Enum.TextXAlignment.Left
+	instance.TextYAlignment = TEXT_Y_ALIGN[layer.textAlignVertical] or Enum.TextYAlignment.Center
 
 	local sizeConstraint = Instance.new("UITextSizeConstraint")
 	sizeConstraint.Name = "ResponsiveTextSize"
@@ -320,16 +509,31 @@ local function styleTextObject(instance, layer)
 	sizeConstraint.Parent = instance
 end
 
+local function backgroundTransparency(layer)
+	local fillOpacity = 1 - math.clamp(layer.backgroundTransparency or 0, 0, 1)
+	return 1 - fillOpacity * (layer.opacity / 255)
+end
+
 local function styleContainer(instance, layer)
-	if layer and layer.backgroundColor then
+	if layer and layer.fillGradient then
+		instance.BackgroundColor3 = Color3.new(1, 1, 1)
+		instance.BackgroundTransparency = 1 - (layer.opacity / 255)
+	elseif layer and layer.backgroundColor then
 		instance.BackgroundColor3 =
 			Color3.new(layer.backgroundColor.r, layer.backgroundColor.g, layer.backgroundColor.b)
-		instance.BackgroundTransparency = math.clamp(layer.backgroundTransparency or 0, 0, 1)
+		instance.BackgroundTransparency = backgroundTransparency(layer)
 	else
 		instance.BackgroundTransparency = 1
 	end
 	instance.BorderSizePixel = 0
-	instance.ClipsDescendants = false
+	instance.ClipsDescendants = layer and (layer.clipsContent == true or layer.imageScaleMode ~= nil) or false
+end
+
+local function applyImageScale(image, layer)
+	image.ScaleType = IMAGE_SCALE_TYPES[layer.imageScaleMode] or Enum.ScaleType.Stretch
+	if image.ScaleType == Enum.ScaleType.Tile then
+		image.TileSize = UDim2.fromOffset(layer.pixelWidth or layer.width, layer.pixelHeight or layer.height)
+	end
 end
 
 local function addImageTiles(instance, layer, tiles, hideOriginalArtwork)
@@ -338,27 +542,59 @@ local function addImageTiles(instance, layer, tiles, hideOriginalArtwork)
 	end
 
 	local supportsImage = instance:IsA("ImageLabel") or instance:IsA("ImageButton")
+	local imageOpacity = (layer.opacity / 255) * (layer.imageOpacity or 1)
 	if supportsImage and #tiles == 1 then
 		instance.ImageContent = tiles[1].content
-		instance.ImageTransparency = 1 - (layer.opacity / 255)
-		instance.ScaleType = Enum.ScaleType.Stretch
+		instance.ImageTransparency = 1 - imageOpacity
+		applyImageScale(instance, layer)
 		return
 	end
 
-	for index, tile in ipairs(tiles) do
+	if #tiles == 1 then
 		local image = Instance.new("ImageLabel")
-		image.Name = if #tiles == 1 then "OriginalArtwork" else string.format("ArtworkTile%02d", index)
+		image.Name = "OriginalArtwork"
 		image.BackgroundTransparency = 1
 		image.BorderSizePixel = 0
-		image.ImageContent = tile.content
-		image.ImageTransparency = 1 - (layer.opacity / 255)
-		image.Position = UDim2.fromScale(tile.x / layer.width, tile.y / layer.height)
-		image.Size = UDim2.fromScale(tile.width / layer.width, tile.height / layer.height)
-		image.ScaleType = Enum.ScaleType.Stretch
+		image.ImageContent = tiles[1].content
+		image.ImageTransparency = 1 - imageOpacity
+		image.Position = UDim2.fromScale(0, 0)
+		image.Size = UDim2.fromScale(1, 1)
+		applyImageScale(image, layer)
 		image.Visible = not hideOriginalArtwork
 		image.ZIndex = instance.ZIndex
 		image:SetAttribute("UIImporterArtwork", true)
 		image.Parent = instance
+		return
+	end
+
+	local sourceWidth = layer.pixelWidth or layer.width
+	local sourceHeight = layer.pixelHeight or layer.height
+	local holder = Instance.new("Frame")
+	holder.Name = "OriginalArtworkTiles"
+	holder.BackgroundTransparency = 1
+	holder.BorderSizePixel = 0
+	holder.ClipsDescendants = true
+	holder.Position = UDim2.fromScale(0, 0)
+	holder.Size = UDim2.fromScale(1, 1)
+	holder.Visible = not hideOriginalArtwork
+	holder.ZIndex = instance.ZIndex
+	holder:SetAttribute("UIImporterArtwork", true)
+	holder:SetAttribute("UIImporterImageScaleMode", layer.imageScaleMode or "STRETCH")
+	holder.Parent = instance
+
+	for index, tile in ipairs(tiles) do
+		local image = Instance.new("ImageLabel")
+		image.Name = string.format("ArtworkTile%02d", index)
+		image.BackgroundTransparency = 1
+		image.BorderSizePixel = 0
+		image.ImageContent = tile.content
+		image.ImageTransparency = 1 - imageOpacity
+		image.Position = UDim2.fromScale(tile.x / sourceWidth, tile.y / sourceHeight)
+		image.Size = UDim2.fromScale(tile.width / sourceWidth, tile.height / sourceHeight)
+		image.ScaleType = Enum.ScaleType.Stretch
+		image.ZIndex = instance.ZIndex
+		image:SetAttribute("UIImporterArtwork", true)
+		image.Parent = holder
 	end
 end
 
@@ -382,10 +618,13 @@ local function configureLayerInstance(instance, role, layer)
 		instance.Looped = false
 		instance:SetAttribute("UIImporterSetupRequired", "Set Video to a Roblox video asset ID.")
 	else
-		if layer.backgroundColor then
+		if layer.fillGradient then
+			instance.BackgroundColor3 = Color3.new(1, 1, 1)
+			instance.BackgroundTransparency = 1 - (layer.opacity / 255)
+		elseif layer.backgroundColor then
 			instance.BackgroundColor3 =
 				Color3.new(layer.backgroundColor.r, layer.backgroundColor.g, layer.backgroundColor.b)
-			instance.BackgroundTransparency = math.clamp(layer.backgroundTransparency or 0, 0, 1)
+			instance.BackgroundTransparency = backgroundTransparency(layer)
 		else
 			instance.BackgroundTransparency = 1
 		end
@@ -397,7 +636,9 @@ local function configureLayerInstance(instance, role, layer)
 		end
 	end
 
-	if instance:IsA("TextButton") or instance:IsA("ImageButton") or instance:IsA("TextBox") then
+	if
+		not layer.figmaType and (instance:IsA("TextButton") or instance:IsA("ImageButton") or instance:IsA("TextBox"))
+	then
 		local touchConstraint = Instance.new("UISizeConstraint")
 		touchConstraint.Name = "ResponsiveTouchTarget"
 		touchConstraint.MinSize = Vector2.new(44, 44)
@@ -410,24 +651,99 @@ end
 local function addImportedStyles(instance, layer, bounds)
 	local minimumDimension = math.max(1, math.min(bounds.width, bounds.height))
 
-	if layer.cornerRadius and layer.cornerRadius > 0 then
+	local cornerRadii = layer.cornerRadii
+	local maximumCorner = if cornerRadii
+		then math.max(cornerRadii.topLeft, cornerRadii.topRight, cornerRadii.bottomRight, cornerRadii.bottomLeft)
+		else layer.cornerRadius or 0
+	if maximumCorner > 0 then
 		local corner = Instance.new("UICorner")
 		corner.Name = "ImportedCorner"
-		corner.CornerRadius = UDim.new(math.clamp(layer.cornerRadius / minimumDimension, 0, 0.5), 0)
+		corner.CornerRadius = UDim.new(math.clamp(maximumCorner / minimumDimension, 0, 0.5), 0)
+		if cornerRadii then
+			local ok = pcall(function()
+				corner.TopLeftRadius = UDim.new(math.clamp(cornerRadii.topLeft / minimumDimension, 0, 0.5), 0)
+				corner.TopRightRadius = UDim.new(math.clamp(cornerRadii.topRight / minimumDimension, 0, 0.5), 0)
+				corner.BottomRightRadius = UDim.new(math.clamp(cornerRadii.bottomRight / minimumDimension, 0, 0.5), 0)
+				corner.BottomLeftRadius = UDim.new(math.clamp(cornerRadii.bottomLeft / minimumDimension, 0, 0.5), 0)
+			end)
+			if not ok and cornerRadii.independent then
+				corner:SetAttribute("UIImporterApproximation", "Per-corner radii flattened to the largest radius")
+			end
+		end
 		corner:SetAttribute("UIImporterGenerated", true)
 		corner.Parent = instance
 	end
 
-	if layer.strokeColor and layer.strokeThickness and layer.strokeThickness > 0 then
+	if layer.fillGradient then
+		addGradient(instance, layer.fillGradient, "ImportedFillGradient")
+	end
+
+	for effectIndex, effect in ipairs(layer.effects or {}) do
+		if effect.type == "DROP_SHADOW" then
+			local color = effect.color or { r = 0, g = 0, b = 0, a = 0.25 }
+			local created, shadow = pcall(function()
+				local result = Instance.new("UIShadow")
+				result.Name = string.format("ImportedShadow%02d", effectIndex)
+				result.BlurRadius = UDim.new(0, effect.radius)
+				result.Color = Color3.new(color.r, color.g, color.b)
+				result.Transparency = 1 - (color.a or 1) * (layer.opacity / 255)
+				result.Offset = UDim2.fromOffset(effect.offsetX, effect.offsetY)
+				result.Spread = UDim2.fromOffset(effect.spread, effect.spread)
+				result.ZIndex = 0
+				result:SetAttribute("UIImporterGenerated", true)
+				result.Parent = instance
+				return result
+			end)
+			if not created then
+				local fallback = Instance.new("UIStroke")
+				fallback.Name = string.format("ImportedShadowFallback%02d", effectIndex)
+				fallback.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+				fallback.Color = Color3.new(color.r, color.g, color.b)
+				fallback.StrokeSizingMode = Enum.StrokeSizingMode.FixedSize
+				fallback.Thickness = math.max(1, effect.radius + effect.spread)
+				fallback.Transparency = math.clamp(1 - (color.a or 1) * (layer.opacity / 255) * 0.5, 0, 1)
+				fallback:SetAttribute("UIImporterGenerated", true)
+				fallback:SetAttribute("UIImporterApproximation", tostring(shadow))
+				fallback.Parent = instance
+			end
+		end
+	end
+
+	if (layer.strokeColor or layer.strokeGradient) and layer.strokeThickness and layer.strokeThickness > 0 then
 		local stroke = Instance.new("UIStroke")
 		stroke.Name = "ImportedStroke"
-		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-		stroke.Color = Color3.new(layer.strokeColor.r, layer.strokeColor.g, layer.strokeColor.b)
-		stroke.StrokeSizingMode = Enum.StrokeSizingMode.ScaledSize
-		stroke.Thickness = layer.strokeThickness / minimumDimension
-		stroke.Transparency = 1 - (layer.strokeColor.a or 1)
+		local isText = instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox")
+		stroke.ApplyStrokeMode = if isText then Enum.ApplyStrokeMode.Contextual else Enum.ApplyStrokeMode.Border
+		if layer.strokeGradient then
+			stroke.Color = Color3.new(1, 1, 1)
+			stroke.Transparency = 1 - (layer.opacity / 255)
+		else
+			stroke.Color = Color3.new(layer.strokeColor.r, layer.strokeColor.g, layer.strokeColor.b)
+			stroke.Transparency = 1 - (layer.strokeColor.a or 1) * (layer.opacity / 255)
+		end
+		stroke.StrokeSizingMode = Enum.StrokeSizingMode.FixedSize
+		stroke.Thickness = layer.strokeThickness
+		if layer.strokeJoin == "BEVEL" then
+			stroke.LineJoinMode = Enum.LineJoinMode.Bevel
+		elseif layer.strokeJoin == "MITER" then
+			stroke.LineJoinMode = Enum.LineJoinMode.Miter
+		else
+			stroke.LineJoinMode = Enum.LineJoinMode.Round
+		end
+		pcall(function()
+			if layer.strokeAlign == "INSIDE" then
+				stroke.BorderStrokePosition = Enum.BorderStrokePosition.Inner
+			elseif layer.strokeAlign == "OUTSIDE" then
+				stroke.BorderStrokePosition = Enum.BorderStrokePosition.Outer
+			else
+				stroke.BorderStrokePosition = Enum.BorderStrokePosition.Center
+			end
+		end)
 		stroke:SetAttribute("UIImporterGenerated", true)
 		stroke.Parent = instance
+		if layer.strokeGradient then
+			addGradient(stroke, layer.strokeGradient, "ImportedStrokeGradient")
+		end
 	end
 
 	if layer.layoutMode == "HORIZONTAL" or layer.layoutMode == "VERTICAL" then
@@ -595,7 +911,7 @@ local function configureSemanticOverlay(instance)
 	end
 
 	for _, modifier in ipairs(instance:GetChildren()) do
-		if modifier:IsA("UIStroke") then
+		if modifier:IsA("UIStroke") or modifier:IsA("UIShadow") then
 			modifier.Transparency = 1
 		elseif modifier:IsA("UIGradient") then
 			modifier.Transparency = NumberSequence.new(1)
@@ -749,10 +1065,12 @@ local function embedLayerArtwork(document, progressCallback)
 end
 
 local function embedCompositeArtwork(document, progressCallback)
+	local compositeWidth = document.compositeWidth or document.width
+	local compositeHeight = document.compositeHeight or document.height
 	local compositeLayer = {
 		name = "RenderedDesign",
-		width = document.width,
-		height = document.height,
+		width = compositeWidth,
+		height = compositeHeight,
 		opacity = 255,
 		pixels = document.compositePixels,
 	}
@@ -763,7 +1081,9 @@ local function embedCompositeArtwork(document, progressCallback)
 		if progressCallback then
 			progressCallback({
 				stage = "Embedding",
-				layerName = "Rendered PSD design",
+				layerName = if document.compositeSource == "FigmaThumbnail"
+					then "Rendered Figma preview"
+					else "Rendered PSD design",
 				current = embeddedTiles,
 				total = totalTiles,
 			})
@@ -771,7 +1091,7 @@ local function embedCompositeArtwork(document, progressCallback)
 	end)
 
 	if not tiles then
-		error("Could not embed the rendered PSD design: " .. tostring(contentError))
+		error("Could not embed the rendered design reference: " .. tostring(contentError))
 	end
 
 	document.compositeTiles = tiles
@@ -784,6 +1104,8 @@ local function embedCompositeArtwork(document, progressCallback)
 end
 
 local function addCompositeArtwork(canvas, document)
+	local compositeWidth = document.compositeWidth or document.width
+	local compositeHeight = document.compositeHeight or document.height
 	local renderedDesign = Instance.new("ImageLabel")
 	renderedDesign.Name = "RenderedDesign"
 	renderedDesign.Size = UDim2.fromScale(1, 1)
@@ -795,13 +1117,15 @@ local function addCompositeArtwork(canvas, document)
 	renderedDesign.Active = false
 	renderedDesign.Selectable = false
 	renderedDesign:SetAttribute("UIImporterGenerated", true)
-	renderedDesign:SetAttribute("UIImporterVisualSource", "PSDComposite")
+	renderedDesign:SetAttribute("UIImporterVisualSource", document.compositeSource or "PSDComposite")
 	renderedDesign:AddTag("UIImporterGenerated")
 	renderedDesign.Parent = canvas
 
 	addImageTiles(renderedDesign, {
-		width = document.width,
-		height = document.height,
+		width = compositeWidth,
+		height = compositeHeight,
+		pixelWidth = compositeWidth,
+		pixelHeight = compositeHeight,
 		opacity = 255,
 	}, document.compositeTiles, false)
 end
@@ -819,9 +1143,11 @@ function UIBuilder.build(document, documentName, targetParent, progressCallback,
 	local sourceType = document.sourceType or "PSD"
 	local shouldEmbedImages = not options or options.embedImages ~= false
 	local useCompositeArtwork = shouldEmbedImages
-		and sourceType == "PSD"
-		and document.hasLayerEffects == true
 		and document.compositePixels ~= nil
+		and (
+			(sourceType == "PSD" and document.hasLayerEffects == true)
+			or (sourceType == "FIG" and document.preferCompositeArtwork)
+		)
 	local embeddedImages = if useCompositeArtwork
 		then embedCompositeArtwork(document, progressCallback)
 		elseif shouldEmbedImages then embedLayerArtwork(document, progressCallback)

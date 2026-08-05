@@ -1,4 +1,27 @@
 local FigmaLayout = require("../src/Logic/FigmaLayout")
+local FigmaVisual = require("../src/Logic/FigmaVisual")
+local Deflate = require("../src/Logic/Deflate")
+local fs = require("@lune/fs")
+
+local function loadPngDecoder()
+	local deflateToken = {}
+	local source = fs.readFile("src/Logic/PngDecoder.luau")
+	local chunk, compileError = loadstring(source, "@src/Logic/PngDecoder.luau")
+	assert(chunk, compileError)
+	setfenv(
+		chunk,
+		setmetatable({
+			script = { Parent = { Deflate = deflateToken } },
+			require = function(token)
+				assert(token == deflateToken, "Unexpected PngDecoder dependency")
+				return Deflate
+			end,
+		}, { __index = getfenv(0) })
+	)
+	return chunk()
+end
+
+local PngDecoder = loadPngDecoder()
 
 local passed = 0
 
@@ -196,4 +219,224 @@ test("recognizes wire and Plugin API hug modes", function()
 	expectEqual(FigmaLayout.isHugSizing("FIXED"), false, "fixed sizing")
 end)
 
-print(string.format("All %d Figma layout regression tests passed.", passed))
+test("normalizes native Kiwi gradient paints", function()
+	local paint = FigmaVisual.normalizePaint({
+		type = "GRADIENT_LINEAR",
+		opacity = 0.5,
+		stops = {
+			{ position = 1, color = { r = 0, g = 0, b = 1, a = 1 } },
+			{ position = 0, color = { r = 1, g = 0, b = 0, a = 0.8 } },
+		},
+		transform = { m00 = 1, m01 = 0, m02 = 0, m10 = 1, m11 = 1, m12 = 0 },
+	})
+	expectEqual(paint.gradientStops[1].position, 0, "sorted first stop")
+	expectNear(paint.gradientStops[1].color.a, 0.4, "paint opacity")
+	expectEqual(paint.gradientStops[2].position, 1, "sorted last stop")
+	local geometry = FigmaVisual.gradientGeometry(paint)
+	expectNear(geometry.rotation, 45, "gradient rotation")
+end)
+
+test("converts Kiwi binary image hashes to archive names", function()
+	expectEqual(FigmaVisual.imageHashToHex(string.char(0, 15, 255)), "000fff", "binary hash")
+	expectEqual(
+		FigmaVisual.imageHashToHex("AABBCCDDEEFF00112233445566778899AABBCCDD"),
+		"aabbccddeeff00112233445566778899aabbccdd",
+		"hex hash"
+	)
+end)
+
+test("captures independent corner radii", function()
+	local corners = FigmaVisual.cornerRadii({
+		cornerRadius = 2,
+		rectangleTopLeftCornerRadius = 4,
+		rectangleTopRightCornerRadius = 6,
+		rectangleBottomRightCornerRadius = 8,
+		rectangleBottomLeftCornerRadius = 10,
+		rectangleCornerRadiiIndependent = true,
+	})
+	expectEqual(corners.topLeft, 4, "top-left")
+	expectEqual(corners.topRight, 6, "top-right")
+	expectEqual(corners.bottomRight, 8, "bottom-right")
+	expectEqual(corners.bottomLeft, 10, "bottom-left")
+	expectEqual(corners.independent, true, "independent flag")
+end)
+
+test("captures Figma effects and font metadata", function()
+	local effects = FigmaVisual.normalizeEffects({
+		{
+			type = "DROP_SHADOW",
+			color = { r = 1, g = 0, b = 0, a = 0.5 },
+			offset = { x = 3, y = 4 },
+			radius = 8,
+			spread = 2,
+		},
+	})
+	expectEqual(effects[1].type, "DROP_SHADOW", "effect type")
+	expectEqual(effects[1].offsetX, 3, "shadow x")
+	expectEqual(effects[1].radius, 8, "shadow radius")
+	local font = FigmaVisual.fontInfo({ fontName = { family = "Inter", style = "Extra Bold Italic" } })
+	expectEqual(font.family, "Inter", "font family")
+	expectEqual(font.weight, 800, "font weight")
+	expectEqual(font.italic, true, "font italic")
+end)
+
+local function u32be(value)
+	return string.char(
+		math.floor(value / 16777216) % 256,
+		math.floor(value / 65536) % 256,
+		math.floor(value / 256) % 256,
+		value % 256
+	)
+end
+
+local function pngChunk(chunkType, contents)
+	-- The decoder deliberately does not validate CRCs, so a zero checksum keeps
+	-- these focused fixtures small and independent from another CRC module.
+	return u32be(#contents) .. chunkType .. contents .. "\0\0\0\0"
+end
+
+local function storedPng(width, height, bitDepth, colorType, raw, palette, transparency)
+	local inverseLength = bit32.bxor(#raw, 0xFFFF)
+	local deflate = string.char(
+		1,
+		#raw % 256,
+		math.floor(#raw / 256),
+		inverseLength % 256,
+		math.floor(inverseLength / 256)
+	) .. raw
+	local zlib = "\120\1" .. deflate .. "\0\0\0\0"
+	local header = u32be(width) .. u32be(height) .. string.char(bitDepth, colorType, 0, 0, 0)
+	return "\137PNG\r\n\26\n"
+		.. pngChunk("IHDR", header)
+		.. (if palette then pngChunk("PLTE", palette) else "")
+		.. (if transparency then pngChunk("tRNS", transparency) else "")
+		.. pngChunk("IDAT", zlib)
+		.. pngChunk("IEND", "")
+end
+
+test("decodes embedded RGBA PNG pixels", function()
+	local png = string.char(
+		137,
+		80,
+		78,
+		71,
+		13,
+		10,
+		26,
+		10,
+		0,
+		0,
+		0,
+		13,
+		73,
+		72,
+		68,
+		82,
+		0,
+		0,
+		0,
+		2,
+		0,
+		0,
+		0,
+		2,
+		8,
+		6,
+		0,
+		0,
+		0,
+		114,
+		182,
+		13,
+		36,
+		0,
+		0,
+		0,
+		21,
+		73,
+		68,
+		65,
+		84,
+		120,
+		156,
+		99,
+		248,
+		207,
+		192,
+		240,
+		31,
+		8,
+		27,
+		24,
+		128,
+		52,
+		8,
+		48,
+		0,
+		0,
+		67,
+		211,
+		8,
+		121,
+		201,
+		21,
+		28,
+		15,
+		0,
+		0,
+		0,
+		0,
+		73,
+		69,
+		78,
+		68,
+		174,
+		66,
+		96,
+		130
+	)
+	local decoded = PngDecoder.decode(png)
+	expectEqual(decoded.width, 2, "PNG width")
+	expectEqual(decoded.height, 2, "PNG height")
+	expectEqual(buffer.readu8(decoded.pixels, 0), 255, "red pixel red")
+	expectEqual(buffer.readu8(decoded.pixels, 7), 128, "green pixel alpha")
+	expectEqual(buffer.readu8(decoded.pixels, 10), 255, "blue pixel blue")
+	expectEqual(buffer.readu8(decoded.pixels, 15), 0, "transparent white alpha")
+end)
+
+test("decodes packed indexed PNG pixels and palette transparency", function()
+	local png = storedPng(
+		4,
+		1,
+		2,
+		3,
+		string.char(0, 0x1B),
+		string.char(0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255),
+		string.char(0, 85, 170, 255)
+	)
+	local decoded = PngDecoder.decode(png)
+	expectEqual(buffer.readu8(decoded.pixels, 3), 0, "palette alpha 0")
+	expectEqual(buffer.readu8(decoded.pixels, 4), 255, "palette red")
+	expectEqual(buffer.readu8(decoded.pixels, 7), 85, "palette alpha 1")
+	expectEqual(buffer.readu8(decoded.pixels, 9), 255, "palette green")
+	expectEqual(buffer.readu8(decoded.pixels, 11), 170, "palette alpha 2")
+	expectEqual(buffer.readu8(decoded.pixels, 14), 255, "palette blue")
+end)
+
+test("decodes packed grayscale PNG pixels", function()
+	local decoded = PngDecoder.decode(storedPng(2, 1, 4, 0, string.char(0, 0x0F)))
+	expectEqual(buffer.readu8(decoded.pixels, 0), 0, "black grayscale sample")
+	expectEqual(buffer.readu8(decoded.pixels, 4), 255, "white grayscale sample")
+end)
+
+test("reconstructs all five PNG row filters", function()
+	local raw = string.char(0, 10, 20, 30, 40, 1, 11, 21, 31, 41, 2, 9, 9, 9, 9, 3, 20, 25, 30, 35, 4, 10, 10, 10, 10)
+	local decoded = PngDecoder.decode(storedPng(1, 5, 8, 6, raw))
+	expectEqual(buffer.readu8(decoded.pixels, 0), 10, "filter none")
+	expectEqual(buffer.readu8(decoded.pixels, 4), 11, "filter sub")
+	expectEqual(buffer.readu8(decoded.pixels, 8), 20, "filter up")
+	expectEqual(buffer.readu8(decoded.pixels, 12), 30, "filter average")
+	expectEqual(buffer.readu8(decoded.pixels, 16), 40, "filter Paeth")
+end)
+
+print(string.format("All %d Figma importer regression tests passed.", passed))

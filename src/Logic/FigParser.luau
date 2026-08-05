@@ -1,11 +1,14 @@
 local Deflate = require(script.Parent.Deflate)
 local FigmaLayout = require(script.Parent.FigmaLayout)
+local FigmaVisual = require(script.Parent.FigmaVisual)
+local PngDecoder = require(script.Parent.PngDecoder)
 
 local FigParser = {}
 
 local ZSTD_MAGIC = "\x28\xb5\x2f\xfd"
 local FIG_MAGIC = "fig-kiwi"
 local MAX_SEGMENT_BYTES = 128 * 1024 * 1024
+local MAX_ARCHIVE_ENTRY_BYTES = 128 * 1024 * 1024
 
 local CONTAINER_TYPES = {
 	FRAME = true,
@@ -32,7 +35,7 @@ local function readU32LE(data, position)
 	return first + second * 256 + third * 65536 + fourth * 16777216
 end
 
-local function extractZipEntry(archive, targetName)
+local function extractZipEntries(archive)
 	local searchStart = math.max(1, #archive - 65557)
 	local eocdPosition
 	local cursor = searchStart
@@ -53,6 +56,7 @@ local function extractZipEntry(archive, targetName)
 	local entryCount = readU16LE(archive, eocdPosition + 10)
 	local centralPosition = readU32LE(archive, eocdPosition + 16) + 1
 
+	local entries = {}
 	for _ = 1, entryCount do
 		if string.sub(archive, centralPosition, centralPosition + 3) ~= "PK\001\002" then
 			error("This .fig ZIP archive has a damaged central directory.")
@@ -60,13 +64,21 @@ local function extractZipEntry(archive, targetName)
 
 		local compressionMethod = readU16LE(archive, centralPosition + 10)
 		local compressedSize = readU32LE(archive, centralPosition + 20)
+		local uncompressedSize = readU32LE(archive, centralPosition + 24)
 		local filenameLength = readU16LE(archive, centralPosition + 28)
 		local extraLength = readU16LE(archive, centralPosition + 30)
 		local commentLength = readU16LE(archive, centralPosition + 32)
 		local localHeaderOffset = readU32LE(archive, centralPosition + 42)
 		local filename = string.sub(archive, centralPosition + 46, centralPosition + 45 + filenameLength)
 
-		if filename == targetName then
+		local wanted = filename == "canvas.fig"
+			or filename == "canvas"
+			or filename == "thumbnail.png"
+			or (string.sub(filename, 1, 7) == "images/" and #filename > 7)
+		if wanted then
+			if compressedSize > MAX_ARCHIVE_ENTRY_BYTES or uncompressedSize > MAX_ARCHIVE_ENTRY_BYTES then
+				error(string.format("The .fig archive entry %s exceeds the 128 MB safety limit.", filename))
+			end
 			local localPosition = localHeaderOffset + 1
 			if string.sub(archive, localPosition, localPosition + 3) ~= "PK\003\004" then
 				error("This .fig ZIP archive has a damaged local entry.")
@@ -78,25 +90,49 @@ local function extractZipEntry(archive, targetName)
 			local compressed = string.sub(archive, dataStart, dataStart + compressedSize - 1)
 
 			if compressionMethod == 0 then
-				return compressed
+				entries[filename] = compressed
 			elseif compressionMethod == 8 then
-				return Deflate.decompress(compressed)
+				entries[filename] = Deflate.decompress(compressed)
+			else
+				error(string.format("Unsupported ZIP compression method %d in %s.", compressionMethod, filename))
 			end
-
-			error(string.format("Unsupported ZIP compression method %d in %s.", compressionMethod, targetName))
+			if #entries[filename] > MAX_ARCHIVE_ENTRY_BYTES then
+				error(string.format("The decompressed .fig archive entry %s exceeds 128 MB.", filename))
+			end
+			if uncompressedSize > 0 and #entries[filename] ~= uncompressedSize then
+				error(string.format("The .fig archive entry %s has an invalid decompressed size.", filename))
+			end
 		end
 
 		centralPosition += 46 + filenameLength + extraLength + commentLength
 	end
 
-	error(string.format("This .fig archive does not contain %s.", targetName))
+	return entries
 end
 
-local function getCanvasData(data)
+local function getFigSource(data)
 	if string.sub(data, 1, 2) == "PK" then
-		return extractZipEntry(data, "canvas.fig")
+		local entries = extractZipEntries(data)
+		local canvasData = entries["canvas.fig"] or entries.canvas
+		if not canvasData then
+			error("This .fig archive does not contain canvas.fig.")
+		end
+		local images = {}
+		for name, contents in pairs(entries) do
+			if string.sub(name, 1, 7) == "images/" then
+				images[string.lower(string.sub(name, 8))] = contents
+			end
+		end
+		return {
+			canvasData = canvasData,
+			images = images,
+			thumbnail = entries["thumbnail.png"],
+		}
 	end
-	return data
+	return {
+		canvasData = data,
+		images = {},
+	}
 end
 
 local Reader = {}
@@ -391,7 +427,7 @@ local function copyColor(color)
 end
 
 local function roleForNode(node)
-	if node.type == "TEXT" then
+	if node.type == "TEXT" or node.textData then
 		return "TextLabel"
 	elseif CONTAINER_TYPES[node.type] then
 		return "Frame"
@@ -399,36 +435,70 @@ local function roleForNode(node)
 	return "Frame"
 end
 
-local function buildDocument(message, version)
+local function buildDocument(message, version, source)
 	local nodeChanges = message.nodeChanges
 	if not nodeChanges or #nodeChanges == 0 then
 		error("This .fig file does not contain a scene graph.")
 	end
 
+	local warnings = {}
 	local nodesById = {}
-	local visibleCanvases = {}
-	for _, node in ipairs(nodeChanges) do
+	local lastNodeIndex = {}
+	for index, node in ipairs(nodeChanges) do
+		if node.guid then
+			local key = guidKey(node.guid)
+			if node.phase == "REMOVED" then
+				nodesById[key] = nil
+				lastNodeIndex[key] = nil
+			else
+				nodesById[key] = node
+				lastNodeIndex[key] = index
+			end
+		end
+	end
+
+	local orderedNodes = {}
+	for key, node in pairs(nodesById) do
 		node._children = {}
-		nodesById[guidKey(node.guid)] = node
+		node._figmaKey = key
+		table.insert(orderedNodes, node)
+	end
+	table.sort(orderedNodes, function(left, right)
+		return lastNodeIndex[left._figmaKey] < lastNodeIndex[right._figmaKey]
+	end)
+
+	local visibleCanvases = {}
+	for _, node in ipairs(orderedNodes) do
 		if node.type == "CANVAS" and node.visible ~= false and not node.internalOnly then
 			table.insert(visibleCanvases, node)
 		end
 	end
 
-	for _, node in ipairs(nodeChanges) do
+	local orphanCount = 0
+	for _, node in ipairs(orderedNodes) do
 		if node.parentIndex and node.parentIndex.guid then
 			local parent = nodesById[guidKey(node.parentIndex.guid)]
 			if parent then
 				table.insert(parent._children, node)
+			else
+				orphanCount += 1
 			end
 		end
+	end
+	if orphanCount > 0 then
+		table.insert(
+			warnings,
+			string.format(
+				"%d Figma node(s) referenced a missing or removed parent and could not be attached to the scene tree.",
+				orphanCount
+			)
+		)
 	end
 
 	if #visibleCanvases == 0 then
 		error("This .fig file does not contain a visible Figma page.")
 	end
 
-	local warnings = {}
 	if #visibleCanvases > 1 then
 		table.insert(warnings, "Only the first visible Figma page was imported.")
 	end
@@ -440,8 +510,84 @@ local function buildDocument(message, version)
 
 	local flatLayers = {}
 	local layerIndex = 0
-	local imageWarningAdded = false
 	local wrapWarningAdded = false
+	local complexArtwork = false
+	local decodedImages = {}
+	local missingImageHashes = {}
+	local imageDecodeFailures = {}
+	local unsupportedPaintTypes = {}
+	local unsupportedEffectTypes = {}
+	local unsupportedBlendModes = {}
+	local approximatedGradientTypes = {}
+	local vectorNodeCount = 0
+	local maskNodeCount = 0
+	local multiPaintStackCount = 0
+	local groupOpacityCount = 0
+	local populatedInstanceCount = 0
+	local unresolvedInstanceCount = 0
+
+	local function findImageData(hash)
+		if not hash then
+			return nil
+		end
+		local direct = source.images[hash]
+		if direct then
+			return direct
+		end
+		for name, contents in pairs(source.images) do
+			if string.sub(name, 1, #hash) == hash then
+				return contents
+			end
+		end
+		return nil
+	end
+
+	local function decodeImage(hash)
+		if decodedImages[hash] ~= nil then
+			return if decodedImages[hash] == false then nil else decodedImages[hash]
+		end
+		local encoded = findImageData(hash)
+		if not encoded then
+			missingImageHashes[hash] = true
+			decodedImages[hash] = false
+			return nil
+		end
+		if string.sub(encoded, 1, 8) ~= "\137PNG\r\n\026\n" then
+			local format = if string.sub(encoded, 1, 2) == "\255\216"
+				then "JPEG"
+				elseif string.sub(encoded, 1, 4) == "RIFF" then "WebP"
+				else "unknown"
+			imageDecodeFailures[format] = (imageDecodeFailures[format] or 0) + 1
+			decodedImages[hash] = false
+			return nil
+		end
+		local ok, decoded = pcall(PngDecoder.decode, encoded)
+		if not ok then
+			imageDecodeFailures["PNG: " .. tostring(decoded)] = 1
+			decodedImages[hash] = false
+			return nil
+		end
+		decodedImages[hash] = decoded
+		return decoded
+	end
+
+	local function trackPaints(paints)
+		local visibleCount = 0
+		for _, paint in ipairs(paints or {}) do
+			if paint.visible ~= false then
+				visibleCount += 1
+				local paintType = paint.type or "UNKNOWN"
+				if paintType ~= "SOLID" and paintType ~= "IMAGE" and not FigmaVisual.isGradientType(paintType) then
+					unsupportedPaintTypes[paintType] = (unsupportedPaintTypes[paintType] or 0) + 1
+					complexArtwork = true
+				end
+			end
+		end
+		if visibleCount > 1 then
+			multiPaintStackCount += 1
+			complexArtwork = true
+		end
+	end
 
 	local function convertNode(node, parentMatrix)
 		if node.visible == false then
@@ -460,22 +606,106 @@ local function buildDocument(message, version)
 		local size = node.size or (node.textData and node.textData.layoutSize) or { x = 0, y = 0 }
 		local scaleX = math.sqrt(matrix.m00 * matrix.m00 + matrix.m10 * matrix.m10)
 		local scaleY = math.sqrt(matrix.m01 * matrix.m01 + matrix.m11 * matrix.m11)
+		local scaledWidth = math.max(0, (size.x or 0) * scaleX)
+		local scaledHeight = math.max(0, (size.y or 0) * scaleY)
 		local fill = firstVisiblePaint(node.fillPaints)
 		local stroke = firstVisiblePaint(node.strokePaints)
+		trackPaints(node.fillPaints)
+		trackPaints(node.strokePaints)
+		local normalizedFill = FigmaVisual.normalizePaint(fill)
+		local normalizedStroke = FigmaVisual.normalizePaint(stroke)
 		local backgroundColor
 		local fillOpacity = 0
+		local fillGradient
+		local strokeGradient
+		local imagePixels
+		local imagePixelWidth
+		local imagePixelHeight
+		local imageScaleMode
+		local imageOpacity
 
-		if fill and fill.type == "SOLID" then
-			backgroundColor = copyColor(fill.color)
-			fillOpacity = (fill.opacity or 1) * (backgroundColor.a or 1)
-		elseif fill and fill.type == "IMAGE" and not imageWarningAdded then
-			imageWarningAdded = true
-			table.insert(
-				warnings,
-				"Embedded bitmap fills in native .fig files are represented as placeholders; frames, vectors, text, colors, and hierarchy are still imported."
-			)
+		if normalizedFill and normalizedFill.type == "SOLID" then
+			backgroundColor = normalizedFill.color
+			fillOpacity = backgroundColor and backgroundColor.a or 0
+		elseif normalizedFill and FigmaVisual.isGradientType(normalizedFill.type) then
+			fillGradient = normalizedFill
+			local firstStop = normalizedFill.gradientStops and normalizedFill.gradientStops[1]
+			backgroundColor = firstStop and firstStop.color or copyColor(fill and fill.color)
+			fillOpacity = 1
+			if normalizedFill.type ~= "GRADIENT_LINEAR" then
+				approximatedGradientTypes[normalizedFill.type] = (approximatedGradientTypes[normalizedFill.type] or 0)
+					+ 1
+				complexArtwork = true
+			end
+		elseif normalizedFill and normalizedFill.type == "IMAGE" then
+			imageOpacity = normalizedFill.opacity
+			imageScaleMode = normalizedFill.imageScaleMode
+			if normalizedFill.imageHash then
+				local decoded = decodeImage(normalizedFill.imageHash)
+				if decoded then
+					imagePixels = decoded.pixels
+					imagePixelWidth = decoded.width
+					imagePixelHeight = decoded.height
+				else
+					complexArtwork = true
+				end
+			else
+				missingImageHashes["<missing paint hash>"] = true
+				complexArtwork = true
+			end
 		end
 
+		if normalizedStroke and FigmaVisual.isGradientType(normalizedStroke.type) then
+			strokeGradient = normalizedStroke
+			if normalizedStroke.type ~= "GRADIENT_LINEAR" then
+				approximatedGradientTypes[normalizedStroke.type] = (
+					approximatedGradientTypes[normalizedStroke.type] or 0
+				) + 1
+				complexArtwork = true
+			end
+		end
+
+		local effects = FigmaVisual.normalizeEffects(node.effects)
+		for _, effect in ipairs(effects) do
+			if effect.type ~= "DROP_SHADOW" then
+				unsupportedEffectTypes[effect.type] = (unsupportedEffectTypes[effect.type] or 0) + 1
+				complexArtwork = true
+			end
+		end
+		if (node.opacity or 1) < 1 and #node._children > 0 then
+			groupOpacityCount += 1
+			complexArtwork = true
+		end
+		local blendMode = node.blendMode or "NORMAL"
+		if blendMode ~= "NORMAL" and blendMode ~= "PASS_THROUGH" then
+			unsupportedBlendModes[blendMode] = (unsupportedBlendModes[blendMode] or 0) + 1
+			complexArtwork = true
+		end
+		if FigmaVisual.isComplexVectorType(node.type) then
+			vectorNodeCount += 1
+			complexArtwork = true
+		end
+		if node.mask == true then
+			maskNodeCount += 1
+			complexArtwork = true
+		end
+
+		local cornerRadii = FigmaVisual.cornerRadii(node)
+		if node.type == "ELLIPSE" then
+			local radius = math.min(scaledWidth, scaledHeight) / 2
+			cornerRadii = {
+				topLeft = radius,
+				topRight = radius,
+				bottomRight = radius,
+				bottomLeft = radius,
+				independent = false,
+			}
+			if node.arcData or math.abs(scaledWidth - scaledHeight) > 0.01 then
+				vectorNodeCount += 1
+				complexArtwork = true
+			end
+		end
+		local fontInfo = FigmaVisual.fontInfo(node)
 		local layoutData = FigmaLayout.fromWireNode(node)
 		if
 			layoutData.layoutWrap == "WRAP"
@@ -502,22 +732,42 @@ local function buildDocument(message, version)
 			-- No forced 1px minimum anymore (see the `size` fallback above) - a
 			-- node with no real size now legitimately reports 0 so callers can
 			-- tell "no size data" apart from "a genuinely tiny layer".
-			width = math.max(0, (size.x or 0) * scaleX),
-			height = math.max(0, (size.y or 0) * scaleY),
+			width = scaledWidth,
+			height = scaledHeight,
 			opacity = math.floor(math.clamp(node.opacity or 1, 0, 1) * 255 + 0.5),
 			visible = true,
-			blendMode = node.blendMode or "NORMAL",
+			blendMode = blendMode,
 			children = {},
 			suggestedRole = roleForNode(node),
 			text = if node.textData then node.textData.characters else nil,
 			textSize = node.fontSize,
+			fontFamily = fontInfo.family,
+			fontStyle = fontInfo.style,
+			fontWeight = fontInfo.weight,
+			fontItalic = fontInfo.italic,
+			textAlignHorizontal = node.textAlignHorizontal,
+			textAlignVertical = node.textAlignVertical,
 			backgroundColor = backgroundColor,
 			backgroundTransparency = 1 - fillOpacity,
+			fillGradient = fillGradient,
 			cornerRadius = node.cornerRadius,
-			strokeColor = if stroke and stroke.type == "SOLID" then copyColor(stroke.color) else nil,
+			cornerRadii = cornerRadii,
+			strokeColor = normalizedStroke and normalizedStroke.color,
+			strokeGradient = strokeGradient,
 			strokeThickness = node.strokeWeight,
+			strokeAlign = node.strokeAlign,
+			strokeJoin = node.strokeJoin,
+			effects = effects,
+			pixels = imagePixels,
+			pixelWidth = imagePixelWidth,
+			pixelHeight = imagePixelHeight,
+			imageScaleMode = imageScaleMode,
+			imageOpacity = imageOpacity,
+			isMask = node.mask == true,
+			clipsContent = node.frameMaskDisabled == false and node.resizeToFit ~= true,
 			rotation = math.deg(math.atan2(matrix.m10, matrix.m00)),
 			figmaType = node.type,
+			figmaNodeId = node._figmaKey,
 
 			-- Auto-layout ("stack") properties of THIS node, when it is itself
 			-- an auto-layout frame/container.
@@ -551,11 +801,36 @@ local function buildDocument(message, version)
 		}
 
 		table.insert(flatLayers, layer)
-		table.sort(node._children, function(left, right)
+		local childNodes = node._children
+		local childParentMatrix = matrix
+		if node.type == "INSTANCE" and #childNodes == 0 then
+			local symbolGuid = node.symbolData and node.symbolData.symbolID
+			local sourceNode = symbolGuid and nodesById[guidKey(symbolGuid)]
+			if sourceNode and sourceNode ~= node and #sourceNode._children > 0 then
+				childNodes = sourceNode._children
+				local sourceSize = sourceNode.size or { x = size.x, y = size.y }
+				local instanceScaleX = if (sourceSize.x or 0) > 0 then (size.x or 0) / sourceSize.x else 1
+				local instanceScaleY = if (sourceSize.y or 0) > 0 then (size.y or 0) / sourceSize.y else 1
+				childParentMatrix = multiplyMatrix(matrix, {
+					m00 = instanceScaleX,
+					m01 = 0,
+					m02 = 0,
+					m10 = 0,
+					m11 = instanceScaleY,
+					m12 = 0,
+				})
+				populatedInstanceCount += 1
+				complexArtwork = true
+			else
+				unresolvedInstanceCount += 1
+				complexArtwork = true
+			end
+		end
+		table.sort(childNodes, function(left, right)
 			return tostring(left.parentIndex.position) < tostring(right.parentIndex.position)
 		end)
-		for _, childNode in ipairs(node._children) do
-			local childLayer = convertNode(childNode, matrix)
+		for _, childNode in ipairs(childNodes) do
+			local childLayer = convertNode(childNode, childParentMatrix)
 			if childLayer then
 				table.insert(layer.children, childLayer)
 			end
@@ -604,6 +879,135 @@ local function buildDocument(message, version)
 		normalizeLayer(layer)
 	end
 
+	local function countKeys(values)
+		local count = 0
+		for _ in pairs(values) do
+			count += 1
+		end
+		return count
+	end
+
+	local function describeCounts(values)
+		local descriptions = {}
+		for name, count in pairs(values) do
+			table.insert(descriptions, string.format("%s (%d)", tostring(name), count))
+		end
+		table.sort(descriptions)
+		return table.concat(descriptions, ", ")
+	end
+
+	if countKeys(unsupportedPaintTypes) > 0 then
+		table.insert(
+			warnings,
+			"Unsupported Figma paint types were detected and preserved only by the rendered fallback: "
+				.. describeCounts(unsupportedPaintTypes)
+		)
+	end
+	if countKeys(unsupportedEffectTypes) > 0 then
+		table.insert(
+			warnings,
+			"Figma effects without a native Roblox equivalent were detected: " .. describeCounts(unsupportedEffectTypes)
+		)
+	end
+	if countKeys(unsupportedBlendModes) > 0 then
+		table.insert(
+			warnings,
+			"Non-normal Figma blend modes require rendered fallback: " .. describeCounts(unsupportedBlendModes)
+		)
+	end
+	if countKeys(approximatedGradientTypes) > 0 then
+		table.insert(
+			warnings,
+			"Radial, angular, or diamond gradients use a linear native approximation: "
+				.. describeCounts(approximatedGradientTypes)
+		)
+	end
+	if countKeys(missingImageHashes) > 0 then
+		table.insert(
+			warnings,
+			string.format(
+				"%d embedded image reference(s) were missing from the .fig archive.",
+				countKeys(missingImageHashes)
+			)
+		)
+	end
+	if countKeys(imageDecodeFailures) > 0 then
+		table.insert(
+			warnings,
+			"Some embedded images could not be decoded natively and require rendered fallback: "
+				.. describeCounts(imageDecodeFailures)
+		)
+	end
+	if vectorNodeCount > 0 or maskNodeCount > 0 then
+		table.insert(
+			warnings,
+			string.format(
+				"The design contains %d complex vector node(s) and %d mask(s); native semantic layers are retained while rendered artwork supplies visual fidelity.",
+				vectorNodeCount,
+				maskNodeCount
+			)
+		)
+	end
+	if multiPaintStackCount > 0 then
+		table.insert(
+			warnings,
+			string.format(
+				"%d node paint stack(s) contain multiple visible paints and require compositing.",
+				multiPaintStackCount
+			)
+		)
+	end
+	if groupOpacityCount > 0 then
+		table.insert(
+			warnings,
+			string.format(
+				"%d translucent group(s) require rendered compositing because Roblox frame transparency does not affect descendants.",
+				groupOpacityCount
+			)
+		)
+	end
+	if populatedInstanceCount > 0 then
+		table.insert(
+			warnings,
+			string.format(
+				"Populated %d empty component instance(s) from their source component trees; complex instance overrides may still require rendered fallback.",
+				populatedInstanceCount
+			)
+		)
+	end
+	if unresolvedInstanceCount > 0 then
+		table.insert(
+			warnings,
+			string.format(
+				"%d component instance(s) had no inline children and no resolvable source component.",
+				unresolvedInstanceCount
+			)
+		)
+	end
+
+	local composite
+	if complexArtwork and source.thumbnail then
+		local ok, decodedOrError = pcall(PngDecoder.decode, source.thumbnail)
+		if ok then
+			composite = decodedOrError
+			table.insert(
+				warnings,
+				string.format(
+					"Complex Figma artwork is displayed from the embedded %dx%d preview while native layers remain as transparent semantic overlays.",
+					composite.width,
+					composite.height
+				)
+			)
+		else
+			table.insert(warnings, "The embedded Figma preview could not be decoded: " .. tostring(decodedOrError))
+		end
+	elseif complexArtwork then
+		table.insert(
+			warnings,
+			"This .fig file has complex artwork but no embedded PNG preview; unsupported visuals remain native approximations."
+		)
+	end
+
 	return {
 		width = math.max(1, math.ceil(maximumX - minimumX)),
 		height = math.max(1, math.ceil(maximumY - minimumY)),
@@ -613,13 +1017,18 @@ local function buildDocument(message, version)
 		sourceType = "FIG",
 		figVersion = version,
 		pageName = canvas.name,
+		preferCompositeArtwork = composite ~= nil,
+		compositePixels = composite and composite.pixels,
+		compositeWidth = composite and composite.width,
+		compositeHeight = composite and composite.height,
+		compositeSource = if composite then "FigmaThumbnail" else nil,
 	}
 end
 
 function FigParser.parse(data)
-	local canvasData = getCanvasData(data)
-	local message, version = decodeCanvas(canvasData)
-	return buildDocument(message, version)
+	local source = getFigSource(data)
+	local message, version = decodeCanvas(source.canvasData)
+	return buildDocument(message, version, source)
 end
 
 return FigParser

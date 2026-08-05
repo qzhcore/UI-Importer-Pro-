@@ -83,11 +83,18 @@ These classes need Roblox content after import:
 - `ViewportFrame`: add a `Camera` and 3D instances.
 - `VideoFrame`: assign an uploaded Roblox video asset.
 
-## Figma bitmap fills are missing
+## A Figma image or effect looks soft
 
-Embedded bitmap fills in native `.fig` files are placeholders in this beta.
-Frames, shapes, text, solid fills, corners, strokes, and hierarchy are
-supported. Figma's native format is proprietary and may change.
+Lossless PNG fills are decoded into native artwork. JPEG/WebP fills, complex
+vectors, masks, non-linear gradients, inner shadows, and blur use the embedded
+Figma preview when the `.fig` archive includes one. Keep `RenderedDesign`
+visible; the transparent objects above it are semantic controls for scripting.
+
+The preview resolution is chosen by the exporting application, so a large
+design can look softer than the source. Re-export the `.fig` after opening the
+correct page and zooming to the intended composition. If the archive has no
+preview, unsupported visuals fall back to native approximations and the plugin
+reports a warning.
 
 ## Re-import created a duplicate
 
