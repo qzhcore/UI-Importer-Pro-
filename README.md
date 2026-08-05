@@ -107,14 +107,20 @@ Supported in beta:
 
 - raw or ZIP-wrapped Kiwi scene graphs;
 - frames, groups, components, vectors, shapes, and text;
-- solid fills, corners, strokes, and hierarchy;
+- solid and linear-gradient fills, gradient strokes, independent corners,
+  drop shadows, text strokes, font metadata, and hierarchy;
+- lossless PNG image fills and Figma image scale modes;
+- component-instance population from source component trees;
 - auto-layout direction, gap, padding, wrapping, alignment, Hug contents,
   child grow, and cross-axis stretch;
 - MIN, MAX, CENTER, STRETCH, and SCALE resize constraints; and
 - DEFLATE and Zstandard segments.
 
-Embedded bitmap fills currently create a placeholder and warning. Figma's
-native `.fig` format is proprietary and can change, so keep the original file.
+When a `.fig` contains vectors, masks, JPEG/WebP fills, non-linear gradients,
+blur, or other effects Roblox cannot reproduce natively, the importer uses the
+embedded Figma preview for appearance and keeps transparent, named semantic
+layers over it for scripting. The preview resolution is controlled by the
+exported file. Figma's native `.fig` format can change, so keep the original.
 
 ## Responsive behavior
 

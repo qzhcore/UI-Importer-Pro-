@@ -52,20 +52,24 @@ local function createTileContent(pixels, tileX, tileY, tileWidth, tileHeight)
 end
 
 function AssetUploader.countTiles(layer)
-	if not layer.pixels or layer.width <= 0 or layer.height <= 0 then
+	local pixelWidth = layer.pixelWidth or layer.width
+	local pixelHeight = layer.pixelHeight or layer.height
+	if not layer.pixels or pixelWidth <= 0 or pixelHeight <= 0 then
 		return 0
 	end
 
-	return math.ceil(layer.width / MAX_IMAGE_SIZE) * math.ceil(layer.height / MAX_IMAGE_SIZE)
+	return math.ceil(pixelWidth / MAX_IMAGE_SIZE) * math.ceil(pixelHeight / MAX_IMAGE_SIZE)
 end
 
 function AssetUploader.createLayerContent(layer, progressCallback)
-	if not layer.pixels or layer.width <= 0 or layer.height <= 0 then
+	local pixelWidth = layer.pixelWidth or layer.width
+	local pixelHeight = layer.pixelHeight or layer.height
+	if not layer.pixels or pixelWidth <= 0 or pixelHeight <= 0 then
 		return {}, nil
 	end
 
-	local columns = math.ceil(layer.width / MAX_IMAGE_SIZE)
-	local rows = math.ceil(layer.height / MAX_IMAGE_SIZE)
+	local columns = math.ceil(pixelWidth / MAX_IMAGE_SIZE)
+	local rows = math.ceil(pixelHeight / MAX_IMAGE_SIZE)
 	local tileCount = columns * rows
 	local tiles = table.create(tileCount)
 	local tileIndex = 0
@@ -75,9 +79,9 @@ function AssetUploader.createLayerContent(layer, progressCallback)
 			tileIndex += 1
 			local tileX = column * MAX_IMAGE_SIZE
 			local tileY = row * MAX_IMAGE_SIZE
-			local tileWidth = math.min(MAX_IMAGE_SIZE, layer.width - tileX)
-			local tileHeight = math.min(MAX_IMAGE_SIZE, layer.height - tileY)
-			local tilePixels = copyTilePixels(layer.pixels, layer.width, tileX, tileY, tileWidth, tileHeight)
+			local tileWidth = math.min(MAX_IMAGE_SIZE, pixelWidth - tileX)
+			local tileHeight = math.min(MAX_IMAGE_SIZE, pixelHeight - tileY)
+			local tilePixels = copyTilePixels(layer.pixels, pixelWidth, tileX, tileY, tileWidth, tileHeight)
 
 			if progressCallback then
 				progressCallback(tileIndex, tileCount)

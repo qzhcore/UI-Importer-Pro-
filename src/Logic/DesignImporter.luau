@@ -91,7 +91,7 @@ function DesignImporter.promptAndImport(progressCallback, options)
 		result.imageCount
 	)
 	if result.visualMode == "CompositeOverlay" then
-		message ..= " Photoshop effects preserved with a rendered design and script-ready Roblox overlays."
+		message ..= " Complex artwork preserved with a rendered reference and script-ready Roblox overlays."
 	end
 
 	if #result.warnings > 0 then
