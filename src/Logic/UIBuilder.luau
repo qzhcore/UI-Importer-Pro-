@@ -986,14 +986,19 @@ local function createLayer(layer, parent, parentBounds, canvasBounds, sourceType
 	instance.Parent = parent
 	addImportedStyles(instance, layer, bounds)
 
-	if useCompositeArtwork then
+	local hideLayerArtwork = useCompositeArtwork
+		and (sourceType ~= "FIG" or layer.subtreeRequiresRenderedFallback ~= false)
+	if hideLayerArtwork then
 		configureSemanticOverlay(instance)
 	else
+		if useCompositeArtwork then
+			instance:SetAttribute("UIImporterVisualSource", "NativeHybridOverlay")
+		end
 		local hideOriginalArtwork = role == "TextLabel" or role == "TextButton" or role == "TextBox"
 		addImageTiles(instance, layer, layer.tiles, hideOriginalArtwork)
 	end
 	if
-		not useCompositeArtwork
+		not hideLayerArtwork
 		and role == "ImageLabel"
 		and (not layer.tiles or #layer.tiles == 0)
 		and not layer.backgroundColor
@@ -1020,23 +1025,32 @@ local function walkLayers(layers, callback)
 	end
 end
 
-local function countContentTiles(layers)
+local function countContentTiles(layers, nativeOnly)
 	local count = 0
 	walkLayers(layers, function(layer)
-		if layer.visible and not MODIFIER_ROLES[getLayerRole(layer)] then
+		if
+			layer.visible
+			and not MODIFIER_ROLES[getLayerRole(layer)]
+			and (not nativeOnly or layer.subtreeRequiresRenderedFallback == false)
+		then
 			count += AssetUploader.countTiles(layer)
 		end
 	end)
 	return count
 end
 
-local function embedLayerArtwork(document, progressCallback)
-	local totalTiles = countContentTiles(document.tree)
+local function embedLayerArtwork(document, progressCallback, nativeOnly)
+	local totalTiles = countContentTiles(document.tree, nativeOnly)
 	local embeddedTiles = 0
 	local embeddedImages = 0
 
 	walkLayers(document.tree, function(layer)
-		if not layer.visible or not layer.pixels or MODIFIER_ROLES[getLayerRole(layer)] then
+		if
+			not layer.visible
+			or not layer.pixels
+			or MODIFIER_ROLES[getLayerRole(layer)]
+			or (nativeOnly and layer.subtreeRequiresRenderedFallback ~= false)
+		then
 			return
 		end
 
@@ -1148,10 +1162,15 @@ function UIBuilder.build(document, documentName, targetParent, progressCallback,
 			(sourceType == "PSD" and document.hasLayerEffects == true)
 			or (sourceType == "FIG" and document.preferCompositeArtwork)
 		)
-	local embeddedImages = if useCompositeArtwork
-		then embedCompositeArtwork(document, progressCallback)
-		elseif shouldEmbedImages then embedLayerArtwork(document, progressCallback)
-		else 0
+	local embeddedImages = 0
+	if useCompositeArtwork then
+		if sourceType == "FIG" then
+			embeddedImages += embedLayerArtwork(document, progressCallback, true)
+		end
+		embeddedImages += embedCompositeArtwork(document, progressCallback)
+	elseif shouldEmbedImages then
+		embeddedImages = embedLayerArtwork(document, progressCallback, false)
+	end
 	local layerCollectorClass = if options and options.layerCollectorClass
 		then options.layerCollectorClass
 		else "ScreenGui"

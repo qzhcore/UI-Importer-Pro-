@@ -91,10 +91,12 @@ Figma preview when the `.fig` archive includes one. Keep `RenderedDesign`
 visible; the transparent objects above it are semantic controls for scripting.
 
 The preview resolution is chosen by the exporting application, so a large
-design can look softer than the source. Re-export the `.fig` after opening the
-correct page and zooming to the intended composition. If the archive has no
-preview, unsupported visuals fall back to native approximations and the plugin
-reports a warning.
+design can still look softer than the source. The importer upscales and
+sharpens that preview and keeps supported independent layers native, but it
+cannot recreate detail that was never stored in the archive. Re-export the
+`.fig` after opening the correct page and zooming to the intended composition.
+If the archive has no preview, unsupported visuals fall back to native
+approximations and the plugin reports a warning.
 
 ## Re-import created a duplicate
 

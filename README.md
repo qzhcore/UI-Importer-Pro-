@@ -119,8 +119,10 @@ Supported in beta:
 When a `.fig` contains vectors, masks, JPEG/WebP fills, non-linear gradients,
 blur, or other effects Roblox cannot reproduce natively, the importer uses the
 embedded Figma preview for appearance and keeps transparent, named semantic
-layers over it for scripting. The preview resolution is controlled by the
-exported file. Figma's native `.fig` format can change, so keep the original.
+layers over it for scripting. Supported independent layers remain native above
+the preview for sharper text and UI. The preview is upscaled and sharpened to
+the design dimensions, but its original detail is controlled by the exported
+file. Figma's native `.fig` format can change, so keep the original.
 
 ## Responsive behavior
 

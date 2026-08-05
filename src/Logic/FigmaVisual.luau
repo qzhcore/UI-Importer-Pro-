@@ -211,4 +211,26 @@ function FigmaVisual.isComplexVectorType(nodeType)
 	return COMPLEX_VECTOR_TYPES[nodeType] == true
 end
 
+local function updateSubtreeFallback(layer, inheritedForce)
+	local requiresFallback = inheritedForce or layer.requiresRenderedFallback == true
+	local forceChildren = inheritedForce or layer.forcesDescendantFallback == true
+	for _, child in ipairs(layer.children or {}) do
+		if child.isMask then
+			forceChildren = true
+			break
+		end
+	end
+	for _, child in ipairs(layer.children or {}) do
+		if updateSubtreeFallback(child, forceChildren) then
+			requiresFallback = true
+		end
+	end
+	layer.subtreeRequiresRenderedFallback = requiresFallback
+	return requiresFallback
+end
+
+function FigmaVisual.updateSubtreeFallback(layer)
+	return updateSubtreeFallback(layer, false)
+end
+
 return FigmaVisual
