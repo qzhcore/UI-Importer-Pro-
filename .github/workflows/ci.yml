@@ -19,8 +19,13 @@ jobs:
       - name: Install tools
         run: aftman install
 
+      - name: Test Figma layout mapping
+        run: lune run tests/run.luau
+
       - name: Lint
-        run: selene src
+        run: |
+          selene src
+          selene --config tests/selene.toml tests
 
       - name: Build plugin
         run: rojo build default.project.json --output UIImporterPro.rbxm

@@ -1,4 +1,5 @@
 local Deflate = require(script.Parent.Deflate)
+local FigmaLayout = require(script.Parent.FigmaLayout)
 
 local FigParser = {}
 
@@ -475,16 +476,18 @@ local function buildDocument(message, version)
 			)
 		end
 
+		local layoutData = FigmaLayout.fromWireNode(node)
 		if
-			(node.stackMode == "HORIZONTAL" or node.stackMode == "VERTICAL")
-			and node.layoutWrap == "WRAP"
+			layoutData.layoutWrap == "WRAP"
+			and layoutData.counterAxisSpacing
+			and layoutData.counterAxisSpacing ~= layoutData.layoutGap
 			and not wrapWarningAdded
 		then
 			wrapWarningAdded = true
 			table.insert(
 				warnings,
 				string.format(
-					"Frame '%s' uses Figma's wrapping auto-layout, which UIListLayout cannot reproduce; children were imported as a single non-wrapping row/column.",
+					"Frame '%s' uses a separate wrapped-line gap; Roblox applies one UIListLayout gap in both directions, so the primary gap was used.",
 					node.name or "Unnamed"
 				)
 			)
@@ -518,36 +521,33 @@ local function buildDocument(message, version)
 
 			-- Auto-layout ("stack") properties of THIS node, when it is itself
 			-- an auto-layout frame/container.
-			layoutMode = node.stackMode,
-			layoutGap = node.stackSpacing,
-			paddingLeft = node.stackPaddingLeft,
-			paddingRight = node.stackPaddingRight,
-			paddingTop = node.stackPaddingTop,
-			paddingBottom = node.stackPaddingBottom,
-			primaryAxisAlignItems = node.primaryAxisAlignItems,
-			counterAxisAlignItems = node.counterAxisAlignItems,
-			primaryAxisSizingMode = node.primaryAxisSizingMode,
-			counterAxisSizingMode = node.counterAxisSizingMode,
+			layoutMode = layoutData.layoutMode,
+			layoutGap = layoutData.layoutGap,
+			paddingLeft = layoutData.paddingLeft,
+			paddingRight = layoutData.paddingRight,
+			paddingTop = layoutData.paddingTop,
+			paddingBottom = layoutData.paddingBottom,
+			primaryAxisAlignItems = layoutData.primaryAxisAlignItems,
+			counterAxisAlignItems = layoutData.counterAxisAlignItems,
+			primaryAxisSizingMode = layoutData.primaryAxisSizingMode,
+			counterAxisSizingMode = layoutData.counterAxisSizingMode,
+			layoutWrap = layoutData.layoutWrap,
+			counterAxisSpacing = layoutData.counterAxisSpacing,
 
 			-- How THIS node participates in its PARENT's auto-layout, when the
 			-- parent is an auto-layout frame. layoutPositioning == "ABSOLUTE"
 			-- means the designer turned on Figma's "Absolute position" toggle,
 			-- which pulls the node out of the auto-layout flow and makes it
 			-- behave like a normal constraint-positioned child again.
-			layoutAlign = node.layoutAlign,
-			layoutGrow = node.layoutGrow,
-			layoutPositioning = node.layoutPositioning,
+			layoutAlign = layoutData.layoutAlign,
+			layoutGrow = layoutData.layoutGrow,
+			layoutPositioning = layoutData.layoutPositioning,
 
 			-- Figma's resize constraints (MIN/MAX/CENTER/STRETCH/SCALE per
 			-- axis). Only meaningful when this node is NOT being positioned by
 			-- a parent auto-layout frame, but we capture it unconditionally
 			-- since layoutPositioning == "ABSOLUTE" children need it too.
-			constraints = if node.constraints
-				then {
-					horizontal = node.constraints.horizontal,
-					vertical = node.constraints.vertical,
-				}
-				else nil,
+			constraints = layoutData.constraints,
 		}
 
 		table.insert(flatLayers, layer)
@@ -581,10 +581,16 @@ local function buildDocument(message, version)
 	local maximumX = -math.huge
 	local maximumY = -math.huge
 	for _, layer in ipairs(tree) do
-		minimumX = math.min(minimumX, layer.left)
-		minimumY = math.min(minimumY, layer.top)
-		maximumX = math.max(maximumX, layer.left + layer.width)
-		maximumY = math.max(maximumY, layer.top + layer.height)
+		local bounds = FigmaLayout.getEffectiveBounds(layer)
+		if bounds then
+			minimumX = math.min(minimumX, bounds.left)
+			minimumY = math.min(minimumY, bounds.top)
+			maximumX = math.max(maximumX, bounds.left + bounds.width)
+			maximumY = math.max(maximumY, bounds.top + bounds.height)
+		end
+	end
+	if minimumX == math.huge then
+		error("The first visible Figma page has no measurable layers.")
 	end
 
 	local function normalizeLayer(layer)
