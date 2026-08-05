@@ -1,6 +1,7 @@
 local Deflate = require(script.Parent.Deflate)
 local FigmaLayout = require(script.Parent.FigmaLayout)
 local FigmaVisual = require(script.Parent.FigmaVisual)
+local ImageResampler = require(script.Parent.ImageResampler)
 local PngDecoder = require(script.Parent.PngDecoder)
 
 local FigParser = {}
@@ -573,6 +574,7 @@ local function buildDocument(message, version, source)
 
 	local function trackPaints(paints)
 		local visibleCount = 0
+		local requiresFallback = false
 		for _, paint in ipairs(paints or {}) do
 			if paint.visible ~= false then
 				visibleCount += 1
@@ -580,13 +582,16 @@ local function buildDocument(message, version, source)
 				if paintType ~= "SOLID" and paintType ~= "IMAGE" and not FigmaVisual.isGradientType(paintType) then
 					unsupportedPaintTypes[paintType] = (unsupportedPaintTypes[paintType] or 0) + 1
 					complexArtwork = true
+					requiresFallback = true
 				end
 			end
 		end
 		if visibleCount > 1 then
 			multiPaintStackCount += 1
 			complexArtwork = true
+			requiresFallback = true
 		end
+		return requiresFallback
 	end
 
 	local function convertNode(node, parentMatrix)
@@ -610,8 +615,10 @@ local function buildDocument(message, version, source)
 		local scaledHeight = math.max(0, (size.y or 0) * scaleY)
 		local fill = firstVisiblePaint(node.fillPaints)
 		local stroke = firstVisiblePaint(node.strokePaints)
-		trackPaints(node.fillPaints)
-		trackPaints(node.strokePaints)
+		local fillRequiresFallback = trackPaints(node.fillPaints)
+		local strokeRequiresFallback = trackPaints(node.strokePaints)
+		local requiresRenderedFallback = fillRequiresFallback or strokeRequiresFallback
+		local forcesDescendantFallback = false
 		local normalizedFill = FigmaVisual.normalizePaint(fill)
 		local normalizedStroke = FigmaVisual.normalizePaint(stroke)
 		local backgroundColor
@@ -636,6 +643,7 @@ local function buildDocument(message, version, source)
 				approximatedGradientTypes[normalizedFill.type] = (approximatedGradientTypes[normalizedFill.type] or 0)
 					+ 1
 				complexArtwork = true
+				requiresRenderedFallback = true
 			end
 		elseif normalizedFill and normalizedFill.type == "IMAGE" then
 			imageOpacity = normalizedFill.opacity
@@ -648,10 +656,12 @@ local function buildDocument(message, version, source)
 					imagePixelHeight = decoded.height
 				else
 					complexArtwork = true
+					requiresRenderedFallback = true
 				end
 			else
 				missingImageHashes["<missing paint hash>"] = true
 				complexArtwork = true
+				requiresRenderedFallback = true
 			end
 		end
 
@@ -662,6 +672,7 @@ local function buildDocument(message, version, source)
 					approximatedGradientTypes[normalizedStroke.type] or 0
 				) + 1
 				complexArtwork = true
+				requiresRenderedFallback = true
 			end
 		end
 
@@ -670,24 +681,38 @@ local function buildDocument(message, version, source)
 			if effect.type ~= "DROP_SHADOW" then
 				unsupportedEffectTypes[effect.type] = (unsupportedEffectTypes[effect.type] or 0) + 1
 				complexArtwork = true
+				requiresRenderedFallback = true
+				if #node._children > 0 then
+					forcesDescendantFallback = true
+				end
 			end
 		end
-		if (node.opacity or 1) < 1 and #node._children > 0 then
-			groupOpacityCount += 1
+		if (node.opacity or 1) < 1 then
+			if #node._children > 0 then
+				groupOpacityCount += 1
+				forcesDescendantFallback = true
+			end
 			complexArtwork = true
+			requiresRenderedFallback = true
 		end
 		local blendMode = node.blendMode or "NORMAL"
 		if blendMode ~= "NORMAL" and blendMode ~= "PASS_THROUGH" then
 			unsupportedBlendModes[blendMode] = (unsupportedBlendModes[blendMode] or 0) + 1
 			complexArtwork = true
+			requiresRenderedFallback = true
+			if #node._children > 0 then
+				forcesDescendantFallback = true
+			end
 		end
 		if FigmaVisual.isComplexVectorType(node.type) then
 			vectorNodeCount += 1
 			complexArtwork = true
+			requiresRenderedFallback = true
 		end
 		if node.mask == true then
 			maskNodeCount += 1
 			complexArtwork = true
+			requiresRenderedFallback = true
 		end
 
 		local cornerRadii = FigmaVisual.cornerRadii(node)
@@ -703,6 +728,7 @@ local function buildDocument(message, version, source)
 			if node.arcData or math.abs(scaledWidth - scaledHeight) > 0.01 then
 				vectorNodeCount += 1
 				complexArtwork = true
+				requiresRenderedFallback = true
 			end
 		end
 		local fontInfo = FigmaVisual.fontInfo(node)
@@ -764,10 +790,12 @@ local function buildDocument(message, version, source)
 			imageScaleMode = imageScaleMode,
 			imageOpacity = imageOpacity,
 			isMask = node.mask == true,
+			forcesDescendantFallback = forcesDescendantFallback,
 			clipsContent = node.frameMaskDisabled == false and node.resizeToFit ~= true,
 			rotation = math.deg(math.atan2(matrix.m10, matrix.m00)),
 			figmaType = node.type,
 			figmaNodeId = node._figmaKey,
+			requiresRenderedFallback = requiresRenderedFallback,
 
 			-- Auto-layout ("stack") properties of THIS node, when it is itself
 			-- an auto-layout frame/container.
@@ -821,9 +849,13 @@ local function buildDocument(message, version, source)
 				})
 				populatedInstanceCount += 1
 				complexArtwork = true
+				layer.requiresRenderedFallback = true
+				layer.forcesDescendantFallback = true
 			else
 				unresolvedInstanceCount += 1
 				complexArtwork = true
+				layer.requiresRenderedFallback = true
+				layer.forcesDescendantFallback = true
 			end
 		end
 		table.sort(childNodes, function(left, right)
@@ -835,7 +867,6 @@ local function buildDocument(message, version, source)
 				table.insert(layer.children, childLayer)
 			end
 		end
-
 		return layer
 	end
 
@@ -849,6 +880,9 @@ local function buildDocument(message, version, source)
 
 	if #tree == 0 then
 		error("The first visible Figma page is empty.")
+	end
+	for _, layer in ipairs(tree) do
+		FigmaVisual.updateSubtreeFallback(layer)
 	end
 
 	local minimumX = math.huge
@@ -942,7 +976,7 @@ local function buildDocument(message, version, source)
 		table.insert(
 			warnings,
 			string.format(
-				"The design contains %d complex vector node(s) and %d mask(s); native semantic layers are retained while rendered artwork supplies visual fidelity.",
+				"The design contains %d complex vector node(s) and %d mask(s); unsupported vector regions use rendered artwork while semantic layers remain scriptable.",
 				vectorNodeCount,
 				maskNodeCount
 			)
@@ -985,17 +1019,33 @@ local function buildDocument(message, version, source)
 		)
 	end
 
+	local documentWidth = math.max(1, math.ceil(maximumX - minimumX))
+	local documentHeight = math.max(1, math.ceil(maximumY - minimumY))
+	local nativeOverlayLayerCount = 0
+	for _, layer in ipairs(flatLayers) do
+		if layer.subtreeRequiresRenderedFallback == false then
+			nativeOverlayLayerCount += 1
+		end
+	end
+
 	local composite
+	local compositeOriginalWidth
+	local compositeOriginalHeight
 	if complexArtwork and source.thumbnail then
 		local ok, decodedOrError = pcall(PngDecoder.decode, source.thumbnail)
 		if ok then
-			composite = decodedOrError
+			compositeOriginalWidth = decodedOrError.width
+			compositeOriginalHeight = decodedOrError.height
+			composite = ImageResampler.upscaleSharpened(decodedOrError, documentWidth, documentHeight)
 			table.insert(
 				warnings,
 				string.format(
-					"Complex Figma artwork is displayed from the embedded %dx%d preview while native layers remain as transparent semantic overlays.",
+					"Unsupported Figma regions use the embedded %dx%d preview, sharpened to %dx%d; %d supported layer(s) remain native.",
+					decodedOrError.width,
+					decodedOrError.height,
 					composite.width,
-					composite.height
+					composite.height,
+					nativeOverlayLayerCount
 				)
 			)
 		else
@@ -1009,8 +1059,8 @@ local function buildDocument(message, version, source)
 	end
 
 	return {
-		width = math.max(1, math.ceil(maximumX - minimumX)),
-		height = math.max(1, math.ceil(maximumY - minimumY)),
+		width = documentWidth,
+		height = documentHeight,
 		layers = flatLayers,
 		tree = tree,
 		warnings = warnings,
@@ -1021,7 +1071,10 @@ local function buildDocument(message, version, source)
 		compositePixels = composite and composite.pixels,
 		compositeWidth = composite and composite.width,
 		compositeHeight = composite and composite.height,
+		compositeOriginalWidth = compositeOriginalWidth,
+		compositeOriginalHeight = compositeOriginalHeight,
 		compositeSource = if composite then "FigmaThumbnail" else nil,
+		nativeOverlayLayerCount = nativeOverlayLayerCount,
 	}
 end
 

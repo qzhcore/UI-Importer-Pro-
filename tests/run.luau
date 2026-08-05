@@ -1,6 +1,7 @@
 local FigmaLayout = require("../src/Logic/FigmaLayout")
 local FigmaVisual = require("../src/Logic/FigmaVisual")
 local Deflate = require("../src/Logic/Deflate")
+local ImageResampler = require("../src/Logic/ImageResampler")
 local fs = require("@lune/fs")
 
 local function loadPngDecoder()
@@ -278,6 +279,55 @@ test("captures Figma effects and font metadata", function()
 	expectEqual(font.family, "Inter", "font family")
 	expectEqual(font.weight, 800, "font weight")
 	expectEqual(font.italic, true, "font italic")
+end)
+
+test("keeps supported hybrid leaves native and propagates fallback to parents", function()
+	local supportedLeaf = { requiresRenderedFallback = false, children = {} }
+	local unsupportedLeaf = { requiresRenderedFallback = true, children = {} }
+	local supportedSibling = { requiresRenderedFallback = false, children = {} }
+	local root = {
+		requiresRenderedFallback = false,
+		children = { supportedLeaf, unsupportedLeaf },
+	}
+	FigmaVisual.updateSubtreeFallback(root)
+	FigmaVisual.updateSubtreeFallback(supportedSibling)
+	expectEqual(supportedLeaf.subtreeRequiresRenderedFallback, false, "supported leaf")
+	expectEqual(unsupportedLeaf.subtreeRequiresRenderedFallback, true, "unsupported leaf")
+	expectEqual(root.subtreeRequiresRenderedFallback, true, "fallback parent")
+	expectEqual(supportedSibling.subtreeRequiresRenderedFallback, false, "native sibling")
+
+	local forcedChild = { requiresRenderedFallback = false, children = {} }
+	local forcedGroup = {
+		requiresRenderedFallback = true,
+		forcesDescendantFallback = true,
+		children = { forcedChild },
+	}
+	FigmaVisual.updateSubtreeFallback(forcedGroup)
+	expectEqual(forcedChild.subtreeRequiresRenderedFallback, true, "group-composited child")
+
+	local mask = { requiresRenderedFallback = true, isMask = true, children = {} }
+	local maskedSibling = { requiresRenderedFallback = false, children = {} }
+	local maskGroup = { requiresRenderedFallback = false, children = { mask, maskedSibling } }
+	FigmaVisual.updateSubtreeFallback(maskGroup)
+	expectEqual(maskedSibling.subtreeRequiresRenderedFallback, true, "masked sibling")
+end)
+
+test("upscales and sharpens Figma previews without changing flat colors", function()
+	local pixels = buffer.create(2 * 2 * 4)
+	for pixel = 0, 3 do
+		local offset = pixel * 4
+		buffer.writeu8(pixels, offset, 40)
+		buffer.writeu8(pixels, offset + 1, 80)
+		buffer.writeu8(pixels, offset + 2, 120)
+		buffer.writeu8(pixels, offset + 3, 200)
+	end
+	local resized = ImageResampler.upscaleSharpened({ width = 2, height = 2, pixels = pixels }, 8, 8)
+	expectEqual(resized.width, 8, "upscaled width")
+	expectEqual(resized.height, 8, "upscaled height")
+	expectEqual(buffer.readu8(resized.pixels, 0), 40, "flat red")
+	expectEqual(buffer.readu8(resized.pixels, 1), 80, "flat green")
+	expectEqual(buffer.readu8(resized.pixels, 2), 120, "flat blue")
+	expectEqual(buffer.readu8(resized.pixels, 3), 200, "flat alpha")
 end)
 
 local function u32be(value)

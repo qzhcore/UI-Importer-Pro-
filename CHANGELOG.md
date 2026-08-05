@@ -13,6 +13,11 @@ All notable changes to UI Importer Pro are documented here.
   fills.
 - Complex Figma artwork preservation through the `.fig` archive's embedded
   preview, with transparent semantic Roblox layers retained for scripting.
+- Hybrid Figma compositing keeps independently supported layers native above
+  the preview, while masks, group opacity, instance overrides, and other
+  isolated regions remain safely composited.
+- Low-resolution Figma previews are upscaled to the design dimensions with a
+  bounded sharpening pass before they are embedded.
 - Regression coverage for Kiwi visual properties and lossless PNG decoding,
   plus an end-to-end parse check against a real public `.fig` archive.
 
@@ -33,6 +38,8 @@ All notable changes to UI Importer Pro are documented here.
   longer reappear in imported hierarchies.
 - Image artwork keeps its decoded pixel dimensions and Figma scale mode instead
   of stretching every fill to the layer bounds.
+- Composite mode no longer forces every supported Figma layer to use the
+  low-resolution preview.
 
 ## [0.3.0-beta.3] - 2026-07-29
 
