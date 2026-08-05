@@ -2,6 +2,25 @@
 
 All notable changes to UI Importer Pro are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Standalone Luau regression coverage for native Kiwi auto-layout fields,
+  resize constraints, geometry dispatch, and sizeless group bounds.
+
+### Fixed
+
+- Native `.fig` auto-layout and constraint properties now read their actual
+  Kiwi wire names instead of Plugin API aliases that decode as `nil`.
+- Figma gap and padding values now use fixed offsets, preventing responsive
+  scale feedback and preserving the exported pixel spacing.
+- Wrapped rows, Space Between distribution, Hug contents, child grow, and
+  cross-axis stretch now map to Roblox's current list/flex layout features.
+- Top-level groups without an explicit size now contribute descendant bounds
+  to the imported canvas dimensions.
+- STRETCH constraints preserve negative margins instead of clipping overflow.
+
 ## [0.3.0-beta.3] - 2026-07-29
 
 ### Added

@@ -107,7 +107,10 @@ Supported in beta:
 
 - raw or ZIP-wrapped Kiwi scene graphs;
 - frames, groups, components, vectors, shapes, and text;
-- solid fills, corners, strokes, and hierarchy; and
+- solid fills, corners, strokes, and hierarchy;
+- auto-layout direction, gap, padding, wrapping, alignment, Hug contents,
+  child grow, and cross-axis stretch;
+- MIN, MAX, CENTER, STRETCH, and SCALE resize constraints; and
 - DEFLATE and Zstandard segments.
 
 Embedded bitmap fills currently create a placeholder and warning. Figma's

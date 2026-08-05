@@ -1,4 +1,5 @@
 local AssetUploader = require(script.Parent.AssetUploader)
+local FigmaLayout = require(script.Parent.FigmaLayout)
 
 local UIBuilder = {}
 
@@ -68,6 +69,12 @@ local FIG_VERTICAL_ALIGN = {
 	CENTER = Enum.VerticalAlignment.Center,
 	MAX = Enum.VerticalAlignment.Bottom,
 	SPACE_BETWEEN = Enum.VerticalAlignment.Top,
+}
+
+local FIG_ITEM_ALIGN = {
+	MIN = Enum.ItemLineAlignment.Start,
+	CENTER = Enum.ItemLineAlignment.Center,
+	MAX = Enum.ItemLineAlignment.End,
 }
 
 local MODIFIER_ROLES = {
@@ -196,40 +203,7 @@ local function getLayerRole(layer)
 end
 
 local function getBounds(layer, fallback)
-	if layer.width > 0 and layer.height > 0 then
-		return {
-			left = layer.left,
-			top = layer.top,
-			width = layer.width,
-			height = layer.height,
-		}
-	end
-
-	if layer.children and #layer.children > 0 then
-		local minimumX = math.huge
-		local minimumY = math.huge
-		local maximumX = -math.huge
-		local maximumY = -math.huge
-
-		for _, child in ipairs(layer.children) do
-			local childBounds = getBounds(child, fallback)
-			minimumX = math.min(minimumX, childBounds.left)
-			minimumY = math.min(minimumY, childBounds.top)
-			maximumX = math.max(maximumX, childBounds.left + childBounds.width)
-			maximumY = math.max(maximumY, childBounds.top + childBounds.height)
-		end
-
-		if minimumX < math.huge and maximumX > minimumX and maximumY > minimumY then
-			return {
-				left = minimumX,
-				top = minimumY,
-				width = maximumX - minimumX,
-				height = maximumY - minimumY,
-			}
-		end
-	end
-
-	return fallback
+	return FigmaLayout.getEffectiveBounds(layer) or fallback
 end
 
 local function inferAnchor(positionScale, sizeScale)
@@ -272,28 +246,7 @@ end
 --   MAX     - pinned to the far edge, fixed size              -> Scale(1) + Offset
 --   CENTER  - pinned to the center, fixed size                -> Scale(0.5) + Offset, AnchorPoint 0.5
 --   STRETCH - both edges pinned, size grows with the parent   -> Scale(1) size, Offset margins
---   SCALE   - everything proportional (Figma's default)       -> pure Scale (matches legacy applyGeometry)
-local function axisFromConstraint(constraintValue, near, size, parentSize)
-	parentSize = math.max(1, parentSize)
-
-	if constraintValue == "MIN" then
-		return 0, UDim.new(0, near), UDim.new(0, size)
-	elseif constraintValue == "MAX" then
-		local farMargin = parentSize - (near + size)
-		return 0, UDim.new(1, -(farMargin + size)), UDim.new(0, size)
-	elseif constraintValue == "CENTER" then
-		local centerOffset = (near + size / 2) - (parentSize / 2)
-		return 0.5, UDim.new(0.5, centerOffset), UDim.new(0, size)
-	elseif constraintValue == "STRETCH" then
-		local farMargin = math.max(0, parentSize - (near + size))
-		return 0, UDim.new(0, near), UDim.new(1, -(near + farMargin))
-	else
-		-- "SCALE", or missing/unrecognised - proportional to the parent, the
-		-- same math the PSD pipeline (and pre-constraint Figma layers) use.
-		return 0, UDim.new(near / parentSize, 0), UDim.new(size / parentSize, 0)
-	end
-end
-
+--   SCALE   - everything proportional                         -> pure Scale (matches legacy applyGeometry)
 -- Figma-specific replacement for applyGeometry: uses the node's actual
 -- horizontal/vertical resize constraints instead of guessing an anchor from
 -- where the layer happens to sit. This is what fixes the "severe positional
@@ -304,17 +257,15 @@ end
 -- center-anchored and then drift as soon as the parent resized to anything
 -- other than its exact export-time size.
 local function applyFigmaConstraintGeometry(instance, bounds, parentBounds, constraints)
-	local horizontalConstraint = constraints and constraints.horizontal
-	local verticalConstraint = constraints and constraints.vertical
-
-	local anchorX, positionX, sizeX =
-		axisFromConstraint(horizontalConstraint, bounds.left - parentBounds.left, bounds.width, parentBounds.width)
-	local anchorY, positionY, sizeY =
-		axisFromConstraint(verticalConstraint, bounds.top - parentBounds.top, bounds.height, parentBounds.height)
-
-	instance.AnchorPoint = Vector2.new(anchorX, anchorY)
-	instance.Position = UDim2.new(positionX.Scale, positionX.Offset, positionY.Scale, positionY.Offset)
-	instance.Size = UDim2.new(sizeX.Scale, sizeX.Offset, sizeY.Scale, sizeY.Offset)
+	local geometry = FigmaLayout.constraintGeometry(bounds, parentBounds, constraints)
+	instance.AnchorPoint = Vector2.new(geometry.x.anchor, geometry.y.anchor)
+	instance.Position = UDim2.new(
+		geometry.x.positionScale,
+		geometry.x.positionOffset,
+		geometry.y.positionScale,
+		geometry.y.positionOffset
+	)
+	instance.Size = UDim2.new(geometry.x.sizeScale, geometry.x.sizeOffset, geometry.y.sizeScale, geometry.y.sizeOffset)
 end
 
 -- Sizes a child that lives inside a Figma auto-layout frame. Deliberately
@@ -323,32 +274,10 @@ end
 -- spacing that UIListLayout is about to apply on top of it.
 local function applyAutoLayoutChildSize(instance, layer, bounds, parentLayout)
 	instance.AnchorPoint = Vector2.new(0, 0)
+	local layoutSize = FigmaLayout.autoLayoutChildSize(layer, bounds, parentLayout)
+	instance.Size = UDim2.new(layoutSize.x.scale, layoutSize.x.offset, layoutSize.y.scale, layoutSize.y.offset)
 
-	local isPrimaryHorizontal = parentLayout.mode == "HORIZONTAL"
-	local primarySize = if isPrimaryHorizontal then bounds.width else bounds.height
-	local crossSize = if isPrimaryHorizontal then bounds.height else bounds.width
-	local stretchCrossAxis = layer.layoutAlign == "STRETCH"
-	local growPrimaryAxis = layer.layoutGrow and layer.layoutGrow > 0
-
-	-- The primary axis (the direction the frame stacks children in) always
-	-- uses the child's own baked size in raw pixels: that is exactly the size
-	-- Figma solved for this child under auto-layout, so it's the correct
-	-- "fixed" size to hand to UIListLayout, which stacks children using
-	-- whatever size each one already has.
-	local primaryUDim = UDim.new(0, math.max(1, primarySize))
-	-- The cross axis instead honors Figma's per-child "Align" setting:
-	-- STRETCH means fill the available cross-axis space (Roblox handles this
-	-- natively via Scale - UIPadding on the parent is already excluded from
-	-- that 100%), anything else keeps the child's own baked cross-axis size.
-	local crossUDim = if stretchCrossAxis then UDim.new(1, 0) else UDim.new(0, math.max(1, crossSize))
-
-	if isPrimaryHorizontal then
-		instance.Size = UDim2.new(primaryUDim.Scale, primaryUDim.Offset, crossUDim.Scale, crossUDim.Offset)
-	else
-		instance.Size = UDim2.new(crossUDim.Scale, crossUDim.Offset, primaryUDim.Scale, primaryUDim.Offset)
-	end
-
-	if growPrimaryAxis then
+	if layoutSize.grow or layoutSize.stretch then
 		-- UIListLayout stacks children back-to-back using each child's own
 		-- size; unlike CSS flexbox it has no built-in "consume the remaining
 		-- space" behavior. UIFlexItem is the supported Roblox mechanism for
@@ -357,8 +286,13 @@ local function applyAutoLayoutChildSize(instance, layer, bounds, parentLayout)
 		-- keeps its fixed baked size instead of growing).
 		local created, flexItem = pcall(Instance.new, "UIFlexItem")
 		if created then
-			flexItem.Name = "ImportedAutoLayoutGrow"
-			flexItem.FlexMode = Enum.UIFlexMode.Grow
+			flexItem.Name = "ImportedAutoLayoutItem"
+			if layoutSize.grow then
+				flexItem.FlexMode = Enum.UIFlexMode.Grow
+			end
+			if layoutSize.stretch then
+				flexItem.ItemLineAlignment = Enum.ItemLineAlignment.Stretch
+			end
 			flexItem:SetAttribute("UIImporterGenerated", true)
 			flexItem.Parent = instance
 		end
@@ -501,27 +435,39 @@ local function addImportedStyles(instance, layer, bounds)
 		local layout = Instance.new("UIListLayout")
 		layout.Name = "ImportedAutoLayout"
 		layout.FillDirection = if isHorizontal then Enum.FillDirection.Horizontal else Enum.FillDirection.Vertical
-		local layoutReference = if isHorizontal then math.max(1, bounds.width) else math.max(1, bounds.height)
-		layout.Padding = UDim.new((layer.layoutGap or 0) / layoutReference, 0)
+		-- Figma ignores its explicit item gap under SPACE_BETWEEN. Roblox's flex
+		-- distribution should do the same instead of adding the two spacings.
+		local layoutGap = if layer.primaryAxisAlignItems == "SPACE_BETWEEN" then 0 else layer.layoutGap or 0
+		layout.Padding = UDim.new(0, layoutGap)
 		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Wraps = layer.layoutWrap == "WRAP"
 
 		-- Figma's primaryAxisAlignItems packs children ALONG the stacking
 		-- direction; counterAxisAlignItems aligns them across it. Which
 		-- Roblox property ("Horizontal"/"VerticalAlignment") is primary vs.
 		-- counter flips depending on FillDirection.
 		if isHorizontal then
-			layout.HorizontalAlignment = FIG_HORIZONTAL_ALIGN[layer.primaryAxisAlignItems] or Enum.HorizontalAlignment.Left
+			layout.HorizontalAlignment = FIG_HORIZONTAL_ALIGN[layer.primaryAxisAlignItems]
+				or Enum.HorizontalAlignment.Left
 			layout.VerticalAlignment = FIG_VERTICAL_ALIGN[layer.counterAxisAlignItems] or Enum.VerticalAlignment.Top
 		else
 			layout.VerticalAlignment = FIG_VERTICAL_ALIGN[layer.primaryAxisAlignItems] or Enum.VerticalAlignment.Top
-			layout.HorizontalAlignment = FIG_HORIZONTAL_ALIGN[layer.counterAxisAlignItems] or Enum.HorizontalAlignment.Left
+			layout.HorizontalAlignment = FIG_HORIZONTAL_ALIGN[layer.counterAxisAlignItems]
+				or Enum.HorizontalAlignment.Left
+		end
+		if FIG_ITEM_ALIGN[layer.counterAxisAlignItems] then
+			layout.ItemLineAlignment = FIG_ITEM_ALIGN[layer.counterAxisAlignItems]
 		end
 
 		if layer.primaryAxisAlignItems == "SPACE_BETWEEN" then
-			layout:SetAttribute(
-				"UIImporterNote",
-				"Figma used Space Between packing here; Roblox's UIListLayout has no equivalent, so children were left edge-aligned instead."
-			)
+			if isHorizontal then
+				layout.HorizontalFlex = Enum.UIFlexAlignment.SpaceBetween
+			else
+				layout.VerticalFlex = Enum.UIFlexAlignment.SpaceBetween
+			end
+		end
+		if layer.counterAxisAlignItems == "BASELINE" then
+			layout:SetAttribute("UIImporterNote", "Figma baseline alignment was approximated with start alignment.")
 		end
 
 		layout:SetAttribute("UIImporterGenerated", true)
@@ -533,8 +479,12 @@ local function addImportedStyles(instance, layer, bounds)
 		-- exported snapshot size.
 		local primarySizingMode = layer.primaryAxisSizingMode
 		local counterSizingMode = layer.counterAxisSizingMode
-		local hugHorizontal = if isHorizontal then primarySizingMode == "AUTO" else counterSizingMode == "AUTO"
-		local hugVertical = if isHorizontal then counterSizingMode == "AUTO" else primarySizingMode == "AUTO"
+		local hugHorizontal = if isHorizontal
+			then FigmaLayout.isHugSizing(primarySizingMode)
+			else FigmaLayout.isHugSizing(counterSizingMode)
+		local hugVertical = if isHorizontal
+			then FigmaLayout.isHugSizing(counterSizingMode)
+			else FigmaLayout.isHugSizing(primarySizingMode)
 
 		if hugHorizontal and hugVertical then
 			instance.AutomaticSize = Enum.AutomaticSize.XY
@@ -548,10 +498,10 @@ local function addImportedStyles(instance, layer, bounds)
 	if layer.paddingLeft or layer.paddingRight or layer.paddingTop or layer.paddingBottom then
 		local padding = Instance.new("UIPadding")
 		padding.Name = "ImportedPadding"
-		padding.PaddingLeft = UDim.new((layer.paddingLeft or 0) / math.max(1, bounds.width), 0)
-		padding.PaddingRight = UDim.new((layer.paddingRight or 0) / math.max(1, bounds.width), 0)
-		padding.PaddingTop = UDim.new((layer.paddingTop or 0) / math.max(1, bounds.height), 0)
-		padding.PaddingBottom = UDim.new((layer.paddingBottom or 0) / math.max(1, bounds.height), 0)
+		padding.PaddingLeft = UDim.new(0, layer.paddingLeft or 0)
+		padding.PaddingRight = UDim.new(0, layer.paddingRight or 0)
+		padding.PaddingTop = UDim.new(0, layer.paddingTop or 0)
+		padding.PaddingBottom = UDim.new(0, layer.paddingBottom or 0)
 		padding:SetAttribute("UIImporterGenerated", true)
 		padding.Parent = instance
 	end
@@ -707,10 +657,10 @@ local function createLayer(layer, parent, parentBounds, canvasBounds, sourceType
 	--      under the old position-based anchor guess).
 	--   3. Everything else (PSD layers, or FIG layers with no constraint
 	--      data) -> the original scale-only heuristic, unchanged.
-	local isAutoLayoutChild = parentLayout ~= nil and layer.layoutPositioning ~= "ABSOLUTE"
-	if isAutoLayoutChild then
+	local geometryMode = FigmaLayout.geometryMode(parentLayout, layer.layoutPositioning, layer.constraints)
+	if geometryMode == "AUTO_LAYOUT" then
 		applyAutoLayoutChildSize(instance, layer, bounds, parentLayout)
-	elseif layer.constraints then
+	elseif geometryMode == "CONSTRAINTS" then
 		applyFigmaConstraintGeometry(instance, bounds, parentBounds, layer.constraints)
 	else
 		applyGeometry(instance, bounds, parentBounds)
