@@ -1,3 +1,5 @@
+local ImportJob = require(script.Parent.ImportJob)
+local PsdEffects = require(script.Parent.PsdEffects)
 local PsdParser = {}
 
 local PSD_SIGNATURE = "8BPS"
@@ -6,15 +8,16 @@ local RGB_COLOR_MODE = 3
 local RAW_COMPRESSION = 0
 local RLE_COMPRESSION = 1
 
-local function makeReader(data)
+local function makeReader(data, job)
 	local reader = {
 		data = data,
 		position = 1,
 		length = #data,
+		job = job,
 	}
 
 	function reader:ensure(byteCount)
-		if self.position + byteCount - 1 > self.length then
+		if byteCount < 0 or self.position + byteCount - 1 > self.length then
 			error("The PSD ended unexpectedly while reading layer data.")
 		end
 	end
@@ -168,8 +171,22 @@ local function readAdditionalLayerInfo(reader, extraEnd, layer, warnings)
 			layer.sectionType = reader:readU32()
 		elseif key == "TySh" then
 			layer.text = extractTextLayerValue(string.sub(reader.data, dataStart, dataEnd - 1))
+		elseif key == "lyid" and dataLength == 4 then
+			layer.psdLayerId = reader:readU32()
+		elseif key == "vmsk" or key == "vsms" then
+			layer.unsupportedMask = true
 		elseif key == "lfx2" or key == "lrFX" or key == "lmfx" then
 			layer.hasLayerEffects = true
+			if key == "lfx2" then
+				local ok, effects =
+					pcall(PsdEffects.decode, string.sub(reader.data, dataStart, dataEnd - 1), reader.job)
+				reader.job:checkpoint()
+				if ok then
+					layer.psdEffects = effects
+				else
+					table.insert(warnings, layer.name .. ": could not read layer styles: " .. tostring(effects))
+				end
+			end
 		end
 
 		reader.position = dataEnd
@@ -180,32 +197,32 @@ local function readAdditionalLayerInfo(reader, extraEnd, layer, warnings)
 end
 
 local function decodeRawChannel(reader, pixelCount)
-	local pixels = buffer.create(pixelCount)
-	for index = 0, pixelCount - 1 do
-		buffer.writeu8(pixels, index, reader:readU8())
-	end
-	return pixels
+	reader:ensure(pixelCount)
+	reader.job:reserveBytes(pixelCount)
+	return buffer.fromstring(reader:readString(pixelCount))
 end
 
 local function decodeRleRow(reader, encodedLength, output, outputOffset, expectedLength)
 	local encodedEnd = reader.position + encodedLength
 	local written = 0
+	reader:ensure(encodedLength)
 
 	while reader.position < encodedEnd and written < expectedLength do
 		local control = reader:readU8()
 		if control <= 127 then
-			local literalCount = math.min(control + 1, expectedLength - written)
+			local literalCount = control + 1
+			if written + literalCount > expectedLength or reader.position + literalCount > encodedEnd then
+				error("Invalid PSD RLE literal run.")
+			end
 			for _ = 1, literalCount do
 				buffer.writeu8(output, outputOffset + written, reader:readU8())
 				written += 1
 			end
-
-			local unusedLiteralBytes = (control + 1) - literalCount
-			if unusedLiteralBytes > 0 then
-				reader:skip(math.min(unusedLiteralBytes, encodedEnd - reader.position))
-			end
 		elseif control >= 129 then
-			local repeatCount = math.min(257 - control, expectedLength - written)
+			local repeatCount = 257 - control
+			if written + repeatCount > expectedLength or reader.position >= encodedEnd then
+				error("Invalid PSD RLE repeat run.")
+			end
 			local value = reader:readU8()
 			for _ = 1, repeatCount do
 				buffer.writeu8(output, outputOffset + written, value)
@@ -213,16 +230,21 @@ local function decodeRleRow(reader, encodedLength, output, outputOffset, expecte
 			end
 		end
 	end
-
+	if written ~= expectedLength then
+		error("Truncated PSD RLE row.")
+	end
 	reader.position = encodedEnd
+	reader.job:checkpoint()
 end
 
 local function decodeRleChannel(reader, width, height)
+	reader:ensure(height * 2)
 	local rowLengths = table.create(height)
 	for row = 1, height do
 		rowLengths[row] = reader:readU16()
 	end
 
+	reader.job:reserveBytes(width * height)
 	local pixels = buffer.create(width * height)
 	for row = 1, height do
 		decodeRleRow(reader, rowLengths[row], pixels, (row - 1) * width, width)
@@ -244,7 +266,7 @@ local function decodeChannel(reader, compression, width, height)
 	return nil
 end
 
-local function combineChannels(layer)
+local function combineChannels(layer, job)
 	local red = layer.channels[0]
 	local green = layer.channels[1]
 	local blue = layer.channels[2]
@@ -255,14 +277,32 @@ local function combineChannels(layer)
 	end
 
 	local pixelCount = layer.width * layer.height
+	job:reserveBytes(pixelCount * 4)
 	local pixels = buffer.create(pixelCount * 4)
 
 	for index = 0, pixelCount - 1 do
+		if index % 8192 == 0 then
+			job:checkpoint()
+		end
 		local pixelOffset = index * 4
 		buffer.writeu8(pixels, pixelOffset, if red then buffer.readu8(red, index) else 0)
 		buffer.writeu8(pixels, pixelOffset + 1, if green then buffer.readu8(green, index) else 0)
 		buffer.writeu8(pixels, pixelOffset + 2, if blue then buffer.readu8(blue, index) else 0)
-		buffer.writeu8(pixels, pixelOffset + 3, if alpha then buffer.readu8(alpha, index) else 255)
+		local opacity = if alpha then buffer.readu8(alpha, index) else 255
+		local mask = layer.mask
+		if mask and not mask.disabled and not mask.unsupported then
+			local maskX = layer.left + index % layer.width - mask.left
+			local maskY = layer.top + math.floor(index / layer.width) - mask.top
+			local value = mask.defaultColor
+			if layer.channels[-2] and maskX >= 0 and maskY >= 0 and maskX < mask.width and maskY < mask.height then
+				value = buffer.readu8(layer.channels[-2], maskY * mask.width + maskX)
+			end
+			if mask.inverted then
+				value = 255 - value
+			end
+			opacity = math.floor(opacity * value / 255 + 0.5)
+		end
+		buffer.writeu8(pixels, pixelOffset + 3, opacity)
 	end
 
 	return pixels
@@ -309,6 +349,7 @@ local function decodeCompositePixels(reader, compression, channelCount, width, h
 			local channelId = compositeChannelId(channelIndex)
 			local channelRows = rowLengths[channelIndex]
 			if channelId then
+				reader.job:reserveBytes(pixelCount)
 				local pixels = buffer.create(pixelCount)
 				for row = 1, height do
 					decodeRleRow(reader, channelRows[row], pixels, (row - 1) * width, width)
@@ -332,18 +373,22 @@ local function decodeCompositePixels(reader, compression, channelCount, width, h
 		width = width,
 		height = height,
 		channels = channels,
-	})
+	}, reader.job)
 end
 
 local function readLayerRecords(reader, layerCount, warnings)
 	local layers = table.create(layerCount)
 
 	for index = 1, layerCount do
+		reader.job:checkpoint()
 		local top = reader:readI32()
 		local left = reader:readI32()
 		local bottom = reader:readI32()
 		local right = reader:readI32()
 		local channelCount = reader:readU16()
+		if channelCount > 56 then
+			error("Invalid PSD channel count.")
+		end
 		local channelInfo = table.create(channelCount)
 
 		for channelIndex = 1, channelCount do
@@ -371,7 +416,31 @@ local function readLayerRecords(reader, layerCount, warnings)
 		end
 
 		local maskDataLength = reader:readU32()
-		reader:skip(maskDataLength)
+		local maskEnd = reader.position + maskDataLength
+		if maskEnd > extraEnd then
+			error("Invalid PSD mask length.")
+		end
+		local mask
+		if maskDataLength >= 18 then
+			local maskTop, maskLeft = reader:readI32(), reader:readI32()
+			local maskBottom, maskRight = reader:readI32(), reader:readI32()
+			local defaultColor, maskFlags = reader:readU8(), reader:readU8()
+			local relative = bit32.band(maskFlags, 1) ~= 0
+			mask = {
+				top = maskTop + if relative then top else 0,
+				left = maskLeft + if relative then left else 0,
+				width = maskRight - maskLeft,
+				height = maskBottom - maskTop,
+				defaultColor = defaultColor,
+				disabled = bit32.band(maskFlags, 2) ~= 0,
+				inverted = bit32.band(maskFlags, 4) ~= 0,
+				unsupported = bit32.band(maskFlags, 16) ~= 0,
+			}
+			reader.job:checkImage(mask.width, mask.height)
+		elseif maskDataLength ~= 0 then
+			error("Truncated PSD mask metadata.")
+		end
+		reader.position = maskEnd
 
 		local blendingRangesLength = reader:readU32()
 		reader:skip(blendingRangesLength)
@@ -393,9 +462,18 @@ local function readLayerRecords(reader, layerCount, warnings)
 			visible = bit32.band(flags, 0x02) == 0,
 			sectionType = 0,
 			text = nil,
+			mask = mask,
+			unsupportedMask = mask and mask.unsupported,
 		}
-
+		reader.job:checkImage(layer.width, layer.height)
 		readAdditionalLayerInfo(reader, extraEnd, layer, warnings)
+		if layer.psdEffects then
+			PsdEffects.map(layer, layer.psdEffects)
+			layer.psdEffects = nil
+		end
+		if layer.mask and (layer.sectionType == 1 or layer.sectionType == 2) then
+			layer.unsupportedMask = true
+		end
 		reader.position = extraEnd
 		layers[index] = layer
 	end
@@ -406,6 +484,7 @@ end
 local function readLayerPixels(reader, layers, warnings)
 	for _, layer in ipairs(layers) do
 		for _, channelInfo in ipairs(layer.channelInfo) do
+			reader.job:checkpoint()
 			local blockStart = reader.position
 			local blockEnd = blockStart + channelInfo.length
 
@@ -413,10 +492,25 @@ local function readLayerPixels(reader, layers, warnings)
 				error(string.format("Layer '%s' contains truncated channel pixels.", layer.name))
 			end
 
-			if channelInfo.length >= 2 and layer.width > 0 and layer.height > 0 then
+			local width = if channelInfo.id == -2 and layer.mask then layer.mask.width else layer.width
+			local height = if channelInfo.id == -2 and layer.mask then layer.mask.height else layer.height
+			if channelInfo.length >= 2 and width > 0 and height > 0 then
 				local compression = reader:readU16()
-				if channelInfo.id == 0 or channelInfo.id == 1 or channelInfo.id == 2 or channelInfo.id == -1 then
-					local ok, pixels = pcall(decodeChannel, reader, compression, layer.width, layer.height)
+				if
+					channelInfo.id == 0
+					or channelInfo.id == 1
+					or channelInfo.id == 2
+					or channelInfo.id == -1
+					or (channelInfo.id == -2 and layer.mask and not layer.mask.disabled)
+				then
+					local outerLength = reader.length
+					reader.length = blockEnd - 1
+					local ok, pixels = pcall(decodeChannel, reader, compression, width, height)
+					reader.length = outerLength
+					reader.job:checkpoint()
+					if not ok then
+						error(pixels, 0)
+					end
 					if ok and pixels then
 						layer.channels[channelInfo.id] = pixels
 					elseif compression ~= RAW_COMPRESSION and compression ~= RLE_COMPRESSION then
@@ -439,13 +533,18 @@ local function readLayerPixels(reader, layers, warnings)
 			reader.position = blockEnd
 		end
 
-		layer.pixels = combineChannels(layer)
+		if layer.mask and not layer.mask.disabled and not layer.channels[-2] then
+			layer.mask.unsupported = true
+			layer.unsupportedMask = true
+		end
+		layer.pixels = combineChannels(layer, reader.job)
+		PsdEffects.applyPixels(layer, reader.job)
 		layer.channels = nil
 		layer.channelInfo = nil
 	end
 end
 
-local function buildLayerTree(layers)
+local function buildLayerTree(layers, job)
 	local roots = {}
 	local stack = { roots }
 
@@ -459,6 +558,9 @@ local function buildLayerTree(layers)
 			layer.children = {}
 			table.insert(stack[#stack], 1, layer)
 			table.insert(stack, layer.children)
+			if #stack > job.limits.depth then
+				error("PSD group nesting exceeds the limit.")
+			end
 		elseif layer.sectionType == 3 then
 			if #stack > 1 then
 				table.remove(stack)
@@ -471,12 +573,13 @@ local function buildLayerTree(layers)
 	return roots
 end
 
-function PsdParser.parse(data)
+function PsdParser.parse(data, job, options)
+	job = job or ImportJob.new()
 	if type(data) ~= "string" or #data < 26 then
 		error("Choose a valid Photoshop PSD file.")
 	end
 
-	local reader = makeReader(data)
+	local reader = makeReader(data, job)
 	if reader:readString(4) ~= PSD_SIGNATURE then
 		error("The selected file is not a Photoshop PSD.")
 	end
@@ -492,6 +595,10 @@ function PsdParser.parse(data)
 	local width = reader:readU32()
 	local depth = reader:readU16()
 	local colorMode = reader:readU16()
+	job:checkImage(width, height)
+	if width == 0 or height == 0 or channelCount < 3 or channelCount > 56 then
+		error("Invalid PSD dimensions or channel count.")
+	end
 
 	if depth ~= 8 then
 		error(string.format("This PSD uses %d-bit channels. Save an 8-bit RGB copy before importing.", depth))
@@ -511,16 +618,26 @@ function PsdParser.parse(data)
 	local layers = {}
 	local layerAndMaskLength = reader:readU32()
 	local layerAndMaskEnd = reader.position + layerAndMaskLength
+	reader:ensure(layerAndMaskLength)
 
 	if layerAndMaskLength > 0 then
 		local layerInfoLength = reader:readU32()
 		local layerInfoEnd = reader.position + layerInfoLength
+		if layerInfoEnd > layerAndMaskEnd then
+			error("Invalid PSD layer section length.")
+		end
 
 		if layerInfoLength > 0 then
 			local rawLayerCount = reader:readI16()
 			local layerCount = math.abs(rawLayerCount)
+			if layerCount > job.limits.layers then
+				error("This PSD exceeds the layer-count limit.")
+			end
+			local outerLength = reader.length
+			reader.length = layerInfoEnd - 1
 			layers = readLayerRecords(reader, layerCount, warnings)
 			readLayerPixels(reader, layers, warnings)
+			reader.length = outerLength
 			reader.position = layerInfoEnd
 		end
 
@@ -532,7 +649,7 @@ function PsdParser.parse(data)
 	end
 
 	local compositePixels
-	if reader.position + 1 <= reader.length then
+	if options and options.visualMode == "Reference" and reader.position + 1 <= reader.length then
 		local compositeCompression = reader:readU16()
 		compositePixels = decodeCompositePixels(reader, compositeCompression, channelCount, width, height, warnings)
 	end
@@ -553,7 +670,7 @@ function PsdParser.parse(data)
 		colorMode = colorMode,
 		channelCount = channelCount,
 		layers = layers,
-		tree = buildLayerTree(layers),
+		tree = buildLayerTree(layers, job),
 		compositePixels = compositePixels,
 		hasLayerEffects = hasLayerEffects,
 		warnings = warnings,

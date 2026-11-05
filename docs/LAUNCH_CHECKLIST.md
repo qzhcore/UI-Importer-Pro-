@@ -1,13 +1,18 @@
 # Beta Launch Checklist
 
-Use this list for 0.3.0-beta.3 and future public betas.
+Use this list for public releases. Version 0.4.0-beta.1 is currently a branch test build;
+see [current testing steps](TEST_BUILD.md). Historical checkmarks are not a new visual sign-off.
 
 ## Product
 
 - [x] Toolbar name, icon, hover text, and dock widget are present.
 - [x] PSD import succeeds on the beta test document.
 - [x] Imported output is created under `StarterGui`.
-- [x] Photoshop effects are preserved through `RenderedDesign`.
+- [ ] Verify editable imports and explicit static-reference imports in Studio.
+- [ ] Verify interactive cancel and undo/redo for new imports and ID-based updates.
+- [ ] Verify temporary previews are clearly labelled and uploads survive save/reopen and a published client.
+- [ ] Test upload ownership, permission/moderation failures, and retained IDs after cancellation.
+- [ ] Resolve the local-plugin-only upload API restriction before Creator Store distribution.
 - [x] Semantic Roblox controls are available for scripting.
 - [x] Adaptive and preserve-aspect modes are available.
 - [x] Lint, format, and Rojo build checks pass.

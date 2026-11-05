@@ -111,18 +111,22 @@ end
 
 Anchor and position the preview model for the camera used by your experience.
 
-## `RenderedDesign` and semantic overlays
+## Editable layers and reference images
 
-For PSDs with Photoshop effects:
+The default Editable layers mode creates normal visible controls. Changing
+Text, Visible, or position affects the corresponding control. Unsupported
+artwork is listed in Output and in UIImporterWarning on the affected layer.
 
-- `RenderedDesign` is the exact visual layer.
-- Named `TextButton`, `ImageButton`, `TextBox`, and other imported objects are
-  aligned semantic overlays.
-- Overlays may be visually transparent by design.
-- Script the overlays and keep `RenderedDesign` visible.
+Reference image mode creates a static RenderedDesign image with no controls.
+Use it as a comparison image, not as an editable menu.
 
-If a control cannot be clicked, check that no unrelated `GuiObject` with
-`Active = true` is covering it and that its `Visible` property is enabled.
+Auto-layout containers have a LayoutContent child holding flow items and the
+UIListLayout. Absolute overlays and artwork are outside that flow. Recursive
+lookup remains useful. UIImporterSourceId stores native Figma/PSD identifiers
+where available; sources without identifiers use a hierarchy path. DesignUID tracks
+all generated objects. Use Update selected import for sources with durable IDs:
+matched instances, scripts, custom attributes, tags, and names are preserved.
+See [the re-import contract](ARCHITECTURE.md#non-destructive-update-contract).
 
 ## Recommended project structure
 

@@ -2,6 +2,14 @@ local AssetUploader = require(script.Parent.AssetUploader)
 local FigmaLayout = require(script.Parent.FigmaLayout)
 local FigmaVisual = require(script.Parent.FigmaVisual)
 
+local RenderPolicy = require(script.Parent.RenderPolicy)
+
+local ResponsiveLayout = require(script.Parent.ResponsiveLayout)
+local AutoLayoutMapper = require(script.Parent.AutoLayoutMapper)
+local FontMapper = require(script.Parent.FontMapper)
+local RichTextCompiler = require(script.Parent.RichTextCompiler)
+local ImportIdentity = require(script.Parent.ImportIdentity)
+
 local UIBuilder = {}
 
 local ROLE_ALIASES = {
@@ -53,31 +61,6 @@ local ROLE_ALIASES = {
 	["uiscaling"] = "UIScale",
 }
 
--- Figma's primaryAxisAlignItems / counterAxisAlignItems values, mapped onto
--- the Roblox UIListLayout alignment enums. Roblox has no equivalent for
--- SPACE_BETWEEN, so it degrades to edge-alignment (see the UIImporterNote
--- attribute added in addImportedStyles below, which flags this on the
--- generated instance rather than silently guessing at extra spacing).
-local FIG_HORIZONTAL_ALIGN = {
-	MIN = Enum.HorizontalAlignment.Left,
-	CENTER = Enum.HorizontalAlignment.Center,
-	MAX = Enum.HorizontalAlignment.Right,
-	SPACE_BETWEEN = Enum.HorizontalAlignment.Left,
-}
-
-local FIG_VERTICAL_ALIGN = {
-	MIN = Enum.VerticalAlignment.Top,
-	CENTER = Enum.VerticalAlignment.Center,
-	MAX = Enum.VerticalAlignment.Bottom,
-	SPACE_BETWEEN = Enum.VerticalAlignment.Top,
-}
-
-local FIG_ITEM_ALIGN = {
-	MIN = Enum.ItemLineAlignment.Start,
-	CENTER = Enum.ItemLineAlignment.Center,
-	MAX = Enum.ItemLineAlignment.End,
-}
-
 local MODIFIER_ROLES = {
 	UIListLayout = true,
 	UIGridLayout = true,
@@ -91,54 +74,6 @@ local MODIFIER_ROLES = {
 	UIGradient = true,
 	UIPadding = true,
 	UIScale = true,
-}
-
-local FONT_FAMILY_ALIASES = {
-	["arial"] = "Arimo",
-	["fredoka"] = "FredokaOne",
-	["gotham"] = "BuilderSans",
-	["helvetica"] = "Arimo",
-	["inter"] = "BuilderSans",
-	["sfpro"] = "BuilderSans",
-	["sfprodisplay"] = "BuilderSans",
-	["sfprotext"] = "BuilderSans",
-	["sourcesanspro"] = "SourceSansPro",
-}
-
-local ROBLOX_FONT_NAMES = {
-	amaticsc = "AmaticSC",
-	arimo = "Arimo",
-	bangers = "Bangers",
-	buildersans = "BuilderSans",
-	builderextended = "BuilderExtended",
-	buildermono = "BuilderMono",
-	creepster = "Creepster",
-	denkone = "DenkOne",
-	fredokaone = "FredokaOne",
-	inconsolata = "Inconsolata",
-	jura = "Jura",
-	luckiestguy = "LuckiestGuy",
-	merriweather = "Merriweather",
-	montserrat = "Montserrat",
-	nunito = "Nunito",
-	oswald = "Oswald",
-	roboto = "Roboto",
-	robotocondensed = "RobotoCondensed",
-	robotomono = "RobotoMono",
-	sourcesanspro = "SourceSansPro",
-	ubuntu = "Ubuntu",
-}
-
-local FONT_WEIGHTS = {
-	{ value = 100, enum = Enum.FontWeight.Thin },
-	{ value = 200, enum = Enum.FontWeight.ExtraLight },
-	{ value = 300, enum = Enum.FontWeight.Light },
-	{ value = 400, enum = Enum.FontWeight.Regular },
-	{ value = 500, enum = Enum.FontWeight.Medium },
-	{ value = 600, enum = Enum.FontWeight.SemiBold },
-	{ value = 700, enum = Enum.FontWeight.Bold },
-	{ value = 800, enum = Enum.FontWeight.ExtraBold },
-	{ value = 900, enum = Enum.FontWeight.Heavy },
 }
 
 local TEXT_X_ALIGN = {
@@ -218,6 +153,12 @@ local function uniqueName(parent, preferredName)
 end
 
 local function getLayerRole(layer)
+	if layer.renderAsImage then
+		return if layer.interactive
+				or string.find(string.lower(layer.suggestedRole or layer.name), "button", 1, true)
+			then "ImageButton"
+			else "ImageLabel"
+	end
 	local name = string.lower(layer.name)
 	local explicitRole = getExplicitRole(layer.name)
 	if explicitRole then
@@ -252,11 +193,14 @@ local function getLayerRole(layer)
 		return "TextButton"
 	end
 
-	if containsWord(name, "imagebutton") or containsWord(name, "button") then
+	if containsWord(name, "imagebutton") then
 		return "ImageButton"
 	end
+	if containsWord(name, "button") then
+		return if layer.text or layer.textRuns then "TextButton" else "ImageButton"
+	end
 
-	if layer.text then
+	if layer.text or layer.textRuns then
 		return "TextLabel"
 	end
 
@@ -273,136 +217,6 @@ end
 
 local function getBounds(layer, fallback)
 	return FigmaLayout.getEffectiveBounds(layer) or fallback
-end
-
-local function inferAnchor(positionScale, sizeScale)
-	local center = positionScale + (sizeScale * 0.5)
-	if center < 0.34 then
-		return 0
-	elseif center > 0.66 then
-		return 1
-	end
-
-	return 0.5
-end
-
-local function applyGeometry(instance, bounds, parentBounds)
-	local parentWidth = math.max(1, parentBounds.width)
-	local parentHeight = math.max(1, parentBounds.height)
-	local xScale = (bounds.left - parentBounds.left) / parentWidth
-	local yScale = (bounds.top - parentBounds.top) / parentHeight
-	local widthScale = bounds.width / parentWidth
-	local heightScale = bounds.height / parentHeight
-	local anchorX = inferAnchor(xScale, widthScale)
-	local anchorY = inferAnchor(yScale, heightScale)
-
-	instance.AnchorPoint = Vector2.new(anchorX, anchorY)
-	instance.Position = UDim2.fromScale(xScale + (widthScale * anchorX), yScale + (heightScale * anchorY))
-	instance.Size = UDim2.fromScale(widthScale, heightScale)
-end
-
--- Maps ONE axis of a Figma resize constraint onto (AnchorPoint, Position,
--- Size) expressed as a single UDim per component. `near`/`size`/`parentSize`
--- are all in the same design-space "pixel" unit that the parser already
--- works in (the same unit `applyGeometry` above converts to pure Scale).
---
--- The key idea: Roblox's UDim2 already natively supports "part proportional,
--- part fixed" the same way Figma's constraints do - Scale mirrors Figma's
--- SCALE constraint and Offset mirrors a fixed-pixel pin. So each constraint
--- type below is just a different mix of the two, chosen to reproduce what
--- Figma itself does when its frame is resized:
---   MIN     - pinned to the near edge, fixed size            -> pure Offset
---   MAX     - pinned to the far edge, fixed size              -> Scale(1) + Offset
---   CENTER  - pinned to the center, fixed size                -> Scale(0.5) + Offset, AnchorPoint 0.5
---   STRETCH - both edges pinned, size grows with the parent   -> Scale(1) size, Offset margins
---   SCALE   - everything proportional                         -> pure Scale (matches legacy applyGeometry)
--- Figma-specific replacement for applyGeometry: uses the node's actual
--- horizontal/vertical resize constraints instead of guessing an anchor from
--- where the layer happens to sit. This is what fixes the "severe positional
--- drift" the constraint-guessing heuristic in inferAnchor/applyGeometry
--- produced for non-SCALE constraints - that heuristic only ever looked at
--- the layer's own position, so a MIN-pinned icon that happened to sit near
--- the middle of its frame (common with fixed-size headers, etc.) would get
--- center-anchored and then drift as soon as the parent resized to anything
--- other than its exact export-time size.
-local function applyFigmaConstraintGeometry(instance, bounds, parentBounds, constraints)
-	local geometry = FigmaLayout.constraintGeometry(bounds, parentBounds, constraints)
-	instance.AnchorPoint = Vector2.new(geometry.x.anchor, geometry.y.anchor)
-	instance.Position = UDim2.new(
-		geometry.x.positionScale,
-		geometry.x.positionOffset,
-		geometry.y.positionScale,
-		geometry.y.positionOffset
-	)
-	instance.Size = UDim2.new(geometry.x.sizeScale, geometry.x.sizeOffset, geometry.y.sizeScale, geometry.y.sizeOffset)
-end
-
--- Sizes a child that lives inside a Figma auto-layout frame. Deliberately
--- does NOT touch Position: see the comment at its call site in createLayer
--- for why setting an explicit Position here would double up the auto-layout
--- spacing that UIListLayout is about to apply on top of it.
-local function applyAutoLayoutChildSize(instance, layer, bounds, parentLayout)
-	instance.AnchorPoint = Vector2.new(0, 0)
-	local layoutSize = FigmaLayout.autoLayoutChildSize(layer, bounds, parentLayout)
-	instance.Size = UDim2.new(layoutSize.x.scale, layoutSize.x.offset, layoutSize.y.scale, layoutSize.y.offset)
-
-	if layoutSize.grow or layoutSize.stretch then
-		-- UIListLayout stacks children back-to-back using each child's own
-		-- size; unlike CSS flexbox it has no built-in "consume the remaining
-		-- space" behavior. UIFlexItem is the supported Roblox mechanism for
-		-- that, so it's attached here when the running engine has it, and
-		-- silently skipped on older clients that don't (the child then just
-		-- keeps its fixed baked size instead of growing).
-		local created, flexItem = pcall(Instance.new, "UIFlexItem")
-		if created then
-			flexItem.Name = "ImportedAutoLayoutItem"
-			if layoutSize.grow then
-				flexItem.FlexMode = Enum.UIFlexMode.Grow
-			end
-			if layoutSize.stretch then
-				flexItem.ItemLineAlignment = Enum.ItemLineAlignment.Stretch
-			end
-			flexItem:SetAttribute("UIImporterGenerated", true)
-			flexItem.Parent = instance
-		end
-	end
-end
-
-local function normalizedFontKey(value)
-	return string.lower(string.gsub(value or "", "[^%w]", ""))
-end
-
-local function nearestFontWeight(value)
-	local best = FONT_WEIGHTS[4]
-	local bestDistance = math.huge
-	for _, candidate in ipairs(FONT_WEIGHTS) do
-		local distance = math.abs((value or 400) - candidate.value)
-		if distance < bestDistance then
-			best = candidate
-			bestDistance = distance
-		end
-	end
-	return best.enum
-end
-
-local function applyFont(instance, layer)
-	local originalFamily = layer.fontFamily
-	local key = normalizedFontKey(originalFamily)
-	local fontName = FONT_FAMILY_ALIASES[key] or ROBLOX_FONT_NAMES[key]
-	local approximated = fontName == nil or FONT_FAMILY_ALIASES[key] ~= nil
-	fontName = fontName or "BuilderSans"
-	local fontStyle = if layer.fontItalic then Enum.FontStyle.Italic else Enum.FontStyle.Normal
-	local ok, fontFace = pcall(Font.fromName, fontName, nearestFontWeight(layer.fontWeight), fontStyle)
-	if ok then
-		instance.FontFace = fontFace
-	else
-		instance.Font = Enum.Font.Gotham
-		approximated = true
-	end
-	if originalFamily and approximated then
-		instance:SetAttribute("UIImporterOriginalFont", originalFamily)
-		instance:SetAttribute("UIImporterFontFallback", fontName)
-	end
 end
 
 local function normalizedGradientStops(gradient)
@@ -484,8 +298,9 @@ end
 local function styleTextObject(instance, layer)
 	instance.BackgroundTransparency = 1
 	instance.BorderSizePixel = 0
-	applyFont(instance, layer)
-	instance.Text = layer.text or stripRoleMarkers(layer.name)
+	FontMapper.apply(instance, layer)
+	instance.Text, instance.RichText =
+		RichTextCompiler.compile(layer.text or stripRoleMarkers(layer.name), layer.textRuns)
 	instance.TextColor3 = if layer.fillGradient
 		then Color3.new(1, 1, 1)
 		elseif layer.backgroundColor then Color3.new(
@@ -495,6 +310,9 @@ local function styleTextObject(instance, layer)
 		)
 		else Color3.new(1, 1, 1)
 	instance.TextScaled = true
+	if layer.textSize then
+		instance.TextSize = math.clamp(layer.textSize, 1, 100)
+	end
 	local fillOpacity = if layer.fillGradient then 1 else 1 - (layer.backgroundTransparency or 0)
 	instance.TextTransparency = 1 - (layer.opacity / 255) * fillOpacity
 	instance.TextStrokeTransparency = 1
@@ -504,8 +322,11 @@ local function styleTextObject(instance, layer)
 
 	local sizeConstraint = Instance.new("UITextSizeConstraint")
 	sizeConstraint.Name = "ResponsiveTextSize"
-	sizeConstraint.MinTextSize = 1
-	sizeConstraint.MaxTextSize = if layer.textSize then math.clamp(math.floor(layer.textSize * 1.5), 8, 100) else 72
+	sizeConstraint.MinTextSize = layer.minTextSize or 10
+	sizeConstraint.MaxTextSize = math.max(
+		sizeConstraint.MinTextSize,
+		layer.maxTextSize or (if layer.textSize then math.clamp(math.floor(layer.textSize * 2), 10, 100) else 72)
+	)
 	sizeConstraint.Parent = instance
 end
 
@@ -532,7 +353,10 @@ end
 local function applyImageScale(image, layer)
 	image.ScaleType = IMAGE_SCALE_TYPES[layer.imageScaleMode] or Enum.ScaleType.Stretch
 	if image.ScaleType == Enum.ScaleType.Tile then
-		image.TileSize = UDim2.fromOffset(layer.pixelWidth or layer.width, layer.pixelHeight or layer.height)
+		image.TileSize = UDim2.fromScale(
+			(layer.pixelWidth or layer.width) / math.max(1, layer.width),
+			(layer.pixelHeight or layer.height) / math.max(1, layer.height)
+		)
 	end
 end
 
@@ -545,6 +369,7 @@ local function addImageTiles(instance, layer, tiles, hideOriginalArtwork)
 	local imageOpacity = (layer.opacity / 255) * (layer.imageOpacity or 1)
 	if supportsImage and #tiles == 1 then
 		instance.ImageContent = tiles[1].content
+		instance:SetAttribute("UIImporterAssetId", tiles[1].assetId)
 		instance.ImageTransparency = 1 - imageOpacity
 		applyImageScale(instance, layer)
 		return
@@ -556,12 +381,13 @@ local function addImageTiles(instance, layer, tiles, hideOriginalArtwork)
 		image.BackgroundTransparency = 1
 		image.BorderSizePixel = 0
 		image.ImageContent = tiles[1].content
+		image:SetAttribute("UIImporterAssetId", tiles[1].assetId)
 		image.ImageTransparency = 1 - imageOpacity
 		image.Position = UDim2.fromScale(0, 0)
 		image.Size = UDim2.fromScale(1, 1)
 		applyImageScale(image, layer)
 		image.Visible = not hideOriginalArtwork
-		image.ZIndex = instance.ZIndex
+		image.ZIndex = 0
 		image:SetAttribute("UIImporterArtwork", true)
 		image.Parent = instance
 		return
@@ -577,7 +403,7 @@ local function addImageTiles(instance, layer, tiles, hideOriginalArtwork)
 	holder.Position = UDim2.fromScale(0, 0)
 	holder.Size = UDim2.fromScale(1, 1)
 	holder.Visible = not hideOriginalArtwork
-	holder.ZIndex = instance.ZIndex
+	holder.ZIndex = 0
 	holder:SetAttribute("UIImporterArtwork", true)
 	holder:SetAttribute("UIImporterImageScaleMode", layer.imageScaleMode or "STRETCH")
 	holder.Parent = instance
@@ -588,11 +414,12 @@ local function addImageTiles(instance, layer, tiles, hideOriginalArtwork)
 		image.BackgroundTransparency = 1
 		image.BorderSizePixel = 0
 		image.ImageContent = tile.content
+		image:SetAttribute("UIImporterAssetId", tile.assetId)
 		image.ImageTransparency = 1 - imageOpacity
 		image.Position = UDim2.fromScale(tile.x / sourceWidth, tile.y / sourceHeight)
 		image.Size = UDim2.fromScale(tile.width / sourceWidth, tile.height / sourceHeight)
 		image.ScaleType = Enum.ScaleType.Stretch
-		image.ZIndex = instance.ZIndex
+		image.ZIndex = 0
 		image:SetAttribute("UIImporterArtwork", true)
 		image.Parent = holder
 	end
@@ -629,7 +456,10 @@ local function configureLayerInstance(instance, role, layer)
 			instance.BackgroundTransparency = 1
 		end
 		instance.BorderSizePixel = 0
-		instance.ImageTransparency = 1
+		instance.ImageTransparency = if layer.imageAssetId then 1 - layer.opacity / 255 else 1
+		if layer.imageAssetId then
+			instance.Image = layer.imageAssetId
+		end
 		instance.ScaleType = Enum.ScaleType.Stretch
 		if instance:IsA("ImageButton") then
 			instance.AutoButtonColor = false
@@ -639,16 +469,16 @@ local function configureLayerInstance(instance, role, layer)
 	if
 		not layer.figmaType and (instance:IsA("TextButton") or instance:IsA("ImageButton") or instance:IsA("TextBox"))
 	then
-		local touchConstraint = Instance.new("UISizeConstraint")
-		touchConstraint.Name = "ResponsiveTouchTarget"
-		touchConstraint.MinSize = Vector2.new(44, 44)
-		touchConstraint.MaxSize = Vector2.new(100000, 100000)
-		touchConstraint:SetAttribute("UIImporterGenerated", true)
-		touchConstraint.Parent = instance
+		if layer.width < 44 or layer.height < 44 then
+			instance:SetAttribute(
+				"UIImporterTouchTargetWarning",
+				"Review this control's touch hit area; source dimensions were preserved."
+			)
+		end
 	end
 end
 
-local function addImportedStyles(instance, layer, bounds)
+local function addImportedStyles(instance, layer, bounds, layoutParent)
 	local minimumDimension = math.max(1, math.min(bounds.width, bounds.height))
 
 	local cornerRadii = layer.cornerRadii
@@ -684,11 +514,11 @@ local function addImportedStyles(instance, layer, bounds)
 			local created, shadow = pcall(function()
 				local result = Instance.new("UIShadow")
 				result.Name = string.format("ImportedShadow%02d", effectIndex)
-				result.BlurRadius = UDim.new(0, effect.radius)
+				result.BlurRadius = UDim.new(effect.radius / minimumDimension, 0)
 				result.Color = Color3.new(color.r, color.g, color.b)
 				result.Transparency = 1 - (color.a or 1) * (layer.opacity / 255)
-				result.Offset = UDim2.fromOffset(effect.offsetX, effect.offsetY)
-				result.Spread = UDim2.fromOffset(effect.spread, effect.spread)
+				result.Offset = UDim2.fromScale(effect.offsetX / bounds.width, effect.offsetY / bounds.height)
+				result.Spread = UDim2.fromScale(effect.spread / bounds.width, effect.spread / bounds.height)
 				result.ZIndex = 0
 				result:SetAttribute("UIImporterGenerated", true)
 				result.Parent = instance
@@ -699,8 +529,8 @@ local function addImportedStyles(instance, layer, bounds)
 				fallback.Name = string.format("ImportedShadowFallback%02d", effectIndex)
 				fallback.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 				fallback.Color = Color3.new(color.r, color.g, color.b)
-				fallback.StrokeSizingMode = Enum.StrokeSizingMode.FixedSize
-				fallback.Thickness = math.max(1, effect.radius + effect.spread)
+				fallback.StrokeSizingMode = Enum.StrokeSizingMode.ScaledSize
+				fallback.Thickness = math.max(1, effect.radius + effect.spread) / minimumDimension
 				fallback.Transparency = math.clamp(1 - (color.a or 1) * (layer.opacity / 255) * 0.5, 0, 1)
 				fallback:SetAttribute("UIImporterGenerated", true)
 				fallback:SetAttribute("UIImporterApproximation", tostring(shadow))
@@ -721,8 +551,8 @@ local function addImportedStyles(instance, layer, bounds)
 			stroke.Color = Color3.new(layer.strokeColor.r, layer.strokeColor.g, layer.strokeColor.b)
 			stroke.Transparency = 1 - (layer.strokeColor.a or 1) * (layer.opacity / 255)
 		end
-		stroke.StrokeSizingMode = Enum.StrokeSizingMode.FixedSize
-		stroke.Thickness = layer.strokeThickness
+		stroke.StrokeSizingMode = Enum.StrokeSizingMode.ScaledSize
+		stroke.Thickness = layer.strokeThickness / minimumDimension
 		if layer.strokeJoin == "BEVEL" then
 			stroke.LineJoinMode = Enum.LineJoinMode.Bevel
 		elseif layer.strokeJoin == "MITER" then
@@ -746,99 +576,33 @@ local function addImportedStyles(instance, layer, bounds)
 		end
 	end
 
-	if layer.layoutMode == "HORIZONTAL" or layer.layoutMode == "VERTICAL" then
-		local isHorizontal = layer.layoutMode == "HORIZONTAL"
-		local layout = Instance.new("UIListLayout")
-		layout.Name = "ImportedAutoLayout"
-		layout.FillDirection = if isHorizontal then Enum.FillDirection.Horizontal else Enum.FillDirection.Vertical
-		-- Figma ignores its explicit item gap under SPACE_BETWEEN. Roblox's flex
-		-- distribution should do the same instead of adding the two spacings.
-		local layoutGap = if layer.primaryAxisAlignItems == "SPACE_BETWEEN" then 0 else layer.layoutGap or 0
-		layout.Padding = UDim.new(0, layoutGap)
-		layout.SortOrder = Enum.SortOrder.LayoutOrder
-		layout.Wraps = layer.layoutWrap == "WRAP"
-
-		-- Figma's primaryAxisAlignItems packs children ALONG the stacking
-		-- direction; counterAxisAlignItems aligns them across it. Which
-		-- Roblox property ("Horizontal"/"VerticalAlignment") is primary vs.
-		-- counter flips depending on FillDirection.
-		if isHorizontal then
-			layout.HorizontalAlignment = FIG_HORIZONTAL_ALIGN[layer.primaryAxisAlignItems]
-				or Enum.HorizontalAlignment.Left
-			layout.VerticalAlignment = FIG_VERTICAL_ALIGN[layer.counterAxisAlignItems] or Enum.VerticalAlignment.Top
-		else
-			layout.VerticalAlignment = FIG_VERTICAL_ALIGN[layer.primaryAxisAlignItems] or Enum.VerticalAlignment.Top
-			layout.HorizontalAlignment = FIG_HORIZONTAL_ALIGN[layer.counterAxisAlignItems]
-				or Enum.HorizontalAlignment.Left
-		end
-		if FIG_ITEM_ALIGN[layer.counterAxisAlignItems] then
-			layout.ItemLineAlignment = FIG_ITEM_ALIGN[layer.counterAxisAlignItems]
-		end
-
-		if layer.primaryAxisAlignItems == "SPACE_BETWEEN" then
-			if isHorizontal then
-				layout.HorizontalFlex = Enum.UIFlexAlignment.SpaceBetween
-			else
-				layout.VerticalFlex = Enum.UIFlexAlignment.SpaceBetween
-			end
-		end
-		if layer.counterAxisAlignItems == "BASELINE" then
-			layout:SetAttribute("UIImporterNote", "Figma baseline alignment was approximated with start alignment.")
-		end
-
-		layout:SetAttribute("UIImporterGenerated", true)
-		layout.Parent = instance
-
-		-- "Hug contents" (Figma's AUTO sizing mode) on either axis is mapped
-		-- onto Roblox's AutomaticSize, so the frame keeps hugging its content
-		-- if it's edited further in Studio rather than staying frozen at its
-		-- exported snapshot size.
-		local primarySizingMode = layer.primaryAxisSizingMode
-		local counterSizingMode = layer.counterAxisSizingMode
-		local hugHorizontal = if isHorizontal
-			then FigmaLayout.isHugSizing(primarySizingMode)
-			else FigmaLayout.isHugSizing(counterSizingMode)
-		local hugVertical = if isHorizontal
-			then FigmaLayout.isHugSizing(counterSizingMode)
-			else FigmaLayout.isHugSizing(primarySizingMode)
-
-		if hugHorizontal and hugVertical then
-			instance.AutomaticSize = Enum.AutomaticSize.XY
-		elseif hugHorizontal then
-			instance.AutomaticSize = Enum.AutomaticSize.X
-		elseif hugVertical then
-			instance.AutomaticSize = Enum.AutomaticSize.Y
-		end
-	end
-
-	if layer.paddingLeft or layer.paddingRight or layer.paddingTop or layer.paddingBottom then
-		local padding = Instance.new("UIPadding")
-		padding.Name = "ImportedPadding"
-		padding.PaddingLeft = UDim.new(0, layer.paddingLeft or 0)
-		padding.PaddingRight = UDim.new(0, layer.paddingRight or 0)
-		padding.PaddingTop = UDim.new(0, layer.paddingTop or 0)
-		padding.PaddingBottom = UDim.new(0, layer.paddingBottom or 0)
-		padding:SetAttribute("UIImporterGenerated", true)
-		padding.Parent = instance
-	end
+	AutoLayoutMapper.apply(layoutParent, layer, bounds)
 end
 
-local function configureModifier(instance, role, layer, bounds)
+local function configureModifier(instance, role, layer, bounds, parentBounds)
 	if role == "UIListLayout" then
 		instance.FillDirection = if containsWord(layer.name, "horizontal")
 			then Enum.FillDirection.Horizontal
 			else Enum.FillDirection.Vertical
-		instance.Padding = UDim.new(0, 8)
+		instance.Padding = UDim.new(
+			8
+				/ (
+					if instance.FillDirection == Enum.FillDirection.Horizontal
+						then parentBounds.width
+						else parentBounds.height
+				),
+			0
+		)
 		instance.SortOrder = Enum.SortOrder.LayoutOrder
 	elseif role == "UIGridLayout" then
-		instance.CellPadding = UDim2.fromOffset(8, 8)
-		instance.CellSize = UDim2.fromOffset(math.max(1, bounds.width), math.max(1, bounds.height))
+		instance.CellPadding = UDim2.fromScale(8 / parentBounds.width, 8 / parentBounds.height)
+		instance.CellSize = UDim2.fromScale(bounds.width / parentBounds.width, bounds.height / parentBounds.height)
 		instance.SortOrder = Enum.SortOrder.LayoutOrder
 	elseif role == "UIPageLayout" then
-		instance.Padding = UDim.new(0, 12)
+		instance.Padding = UDim.new(12 / parentBounds.width, 0)
 		instance.SortOrder = Enum.SortOrder.LayoutOrder
 	elseif role == "UITableLayout" then
-		instance.Padding = UDim2.fromOffset(8, 8)
+		instance.Padding = UDim2.fromScale(8 / parentBounds.width, 8 / parentBounds.height)
 		instance.SortOrder = Enum.SortOrder.LayoutOrder
 	elseif role == "UIAspectRatioConstraint" then
 		instance.AspectRatio = math.max(0.01, bounds.width / math.max(1, bounds.height))
@@ -847,7 +611,7 @@ local function configureModifier(instance, role, layer, bounds)
 		instance.MinSize = Vector2.zero
 		instance.MaxSize = Vector2.new(math.max(1, bounds.width), math.max(1, bounds.height))
 	elseif role == "UITextSizeConstraint" then
-		instance.MinTextSize = 1
+		instance.MinTextSize = 10
 		instance.MaxTextSize = math.max(8, math.min(100, bounds.height))
 	elseif role == "UICorner" then
 		instance.CornerRadius = UDim.new(0.08, 0)
@@ -886,65 +650,36 @@ local function applyImporterMetadata(instance, layer, role, sourceType)
 	instance:SetAttribute("UIImporterSource", sourceType)
 	instance:SetAttribute("UIImporterOriginalName", layer.name)
 	instance:SetAttribute("UIImporterLayerIndex", layer.index)
+	instance:SetAttribute("UIImporterSourceId", layer.sourceId)
+	instance:SetAttribute("UIImporterWarning", layer.importWarning)
 	instance:SetAttribute("UIImporterRole", role)
 	instance:SetAttribute("UIImporterBlendMode", layer.blendMode or "normal")
+	instance:SetAttribute("UIImporterRequiresImage", layer.renderAsImage and not layer.imageAssetId or nil)
 	instance:AddTag("UIImporterGenerated")
 end
 
-local function configureSemanticOverlay(instance)
-	instance:SetAttribute("UIImporterVisualSource", "RenderedDesign")
-	instance.BackgroundTransparency = 1
-
-	if instance:IsA("ImageLabel") or instance:IsA("ImageButton") or instance:IsA("ViewportFrame") then
-		instance.ImageTransparency = 1
-	elseif instance:IsA("VideoFrame") then
-		instance.VideoTransparency = 1
+local function createLayer(layer, parent, parentBounds, canvasBounds, sourceType, parentLayout, job)
+	if job then
+		job:checkpoint()
 	end
-
-	if instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
-		instance.TextTransparency = 1
-		instance.TextStrokeTransparency = 1
-	end
-
-	if instance:IsA("ScrollingFrame") then
-		instance.ScrollBarImageTransparency = 1
-	end
-
-	for _, modifier in ipairs(instance:GetChildren()) do
-		if modifier:IsA("UIStroke") or modifier:IsA("UIShadow") then
-			modifier.Transparency = 1
-		elseif modifier:IsA("UIGradient") then
-			modifier.Transparency = NumberSequence.new(1)
-		end
-	end
-end
-
--- parentLayout describes the immediate parent's Figma auto-layout, if any:
--- { mode = "HORIZONTAL" | "VERTICAL" }, or nil when the parent isn't an
--- auto-layout frame (always nil for PSD, since PSD has no such concept).
-local function createLayer(layer, parent, parentBounds, canvasBounds, sourceType, useCompositeArtwork, parentLayout)
 	local role = getLayerRole(layer)
 	local bounds = getBounds(layer, parentBounds)
 	local instance = Instance.new(role)
 	local preferredName = appendRoleSuffix(toInstanceName(layer.name, role), role)
 
-	-- A layer that itself runs Figma auto-layout hands that mode down to its
-	-- own children's createLayer calls below, regardless of which branch
-	-- (modifier or normal) this layer takes.
-	local childLayout = if layer.layoutMode == "HORIZONTAL" or layer.layoutMode == "VERTICAL"
-		then { mode = layer.layoutMode }
-		else nil
+	local childLayout = if AutoLayoutMapper.isFlow(layer) then { mode = layer.layoutMode } else nil
 
 	instance.Name = uniqueName(parent, preferredName)
+	instance.Parent = parent
 	applyImporterMetadata(instance, layer, role, sourceType)
 
 	if MODIFIER_ROLES[role] then
-		configureModifier(instance, role, layer, bounds)
+		configureModifier(instance, role, layer, bounds, parentBounds)
 		instance.Parent = parent
 
 		if layer.children then
 			for _, child in ipairs(layer.children) do
-				createLayer(child, parent, parentBounds, canvasBounds, sourceType, useCompositeArtwork, childLayout)
+				createLayer(child, parent, parentBounds, canvasBounds, sourceType, childLayout, job)
 			end
 		end
 
@@ -953,63 +688,47 @@ local function createLayer(layer, parent, parentBounds, canvasBounds, sourceType
 
 	instance.LayoutOrder = layer.index
 	instance.Visible = layer.visible
-	-- Photoshop records arrive bottom-to-top, so later records must render
-	-- above earlier records. Using the source index also preserves ordering
-	-- across nested groups when ZIndexBehavior is Global.
-	instance.ZIndex = math.max(1, layer.index + if useCompositeArtwork then 1 else 0)
+	instance.ZIndex = math.max(1, layer.index)
 	instance.Rotation = layer.rotation or 0
-
-	-- Geometry dispatch, in priority order:
-	--   1. This layer is a live participant in its PARENT's Figma auto-layout
-	--      (parentLayout set, and the designer didn't opt it out via Figma's
-	--      "Absolute position" toggle) -> size only, UIListLayout owns
-	--      Position. Giving it an explicit Position here on top of a
-	--      UIListLayout is exactly what produced the reported "severe drift":
-	--      the baked (left, top) already reflects the padding/gap Figma
-	--      solved at export time, and the live UIListLayout would then apply
-	--      that same padding/gap a second time.
-	--   2. This is a Figma layer with resize constraints -> constraint-based
-	--      AnchorPoint/Position/Size (fixes non-SCALE constraints drifting
-	--      under the old position-based anchor guess).
-	--   3. Everything else (PSD layers, or FIG layers with no constraint
-	--      data) -> the original scale-only heuristic, unchanged.
-	local geometryMode = FigmaLayout.geometryMode(parentLayout, layer.layoutPositioning, layer.constraints)
-	if geometryMode == "AUTO_LAYOUT" then
-		applyAutoLayoutChildSize(instance, layer, bounds, parentLayout)
-	elseif geometryMode == "CONSTRAINTS" then
-		applyFigmaConstraintGeometry(instance, bounds, parentBounds, layer.constraints)
-	else
-		applyGeometry(instance, bounds, parentBounds)
+	local inFlow = parentLayout ~= nil and layer.layoutPositioning ~= "ABSOLUTE"
+	ResponsiveLayout.apply(instance, layer, bounds, parentBounds, inFlow)
+	if inFlow and parentLayout.mode ~= "GRID" then
+		AutoLayoutMapper.child(instance, layer)
 	end
 
 	configureLayerInstance(instance, role, layer)
 	instance.Parent = parent
-	addImportedStyles(instance, layer, bounds)
-
-	local hideLayerArtwork = useCompositeArtwork
-		and (sourceType ~= "FIG" or layer.subtreeRequiresRenderedFallback ~= false)
-	if hideLayerArtwork then
-		configureSemanticOverlay(instance)
-	else
-		if useCompositeArtwork then
-			instance:SetAttribute("UIImporterVisualSource", "NativeHybridOverlay")
-		end
-		local hideOriginalArtwork = role == "TextLabel" or role == "TextButton" or role == "TextBox"
-		addImageTiles(instance, layer, layer.tiles, hideOriginalArtwork)
+	local flowParent = instance
+	local hasContentContainer = childLayout ~= nil or AutoLayoutMapper.hasPadding(layer)
+	if hasContentContainer then
+		flowParent = Instance.new("Frame")
+		flowParent.Name = "LayoutContent"
+		flowParent.BackgroundTransparency = 1
+		flowParent.BorderSizePixel = 0
+		flowParent.Size = UDim2.fromScale(1, 1)
+		flowParent.ZIndex = 1
+		flowParent:SetAttribute("UIImporterLayoutContent", true)
+		flowParent.Parent = instance
 	end
+	addImportedStyles(instance, layer, bounds, flowParent)
+
+	local hideOriginalArtwork = role == "TextLabel" or role == "TextButton" or role == "TextBox"
+	addImageTiles(instance, layer, layer.tiles, hideOriginalArtwork)
 	if
-		not hideLayerArtwork
-		and role == "ImageLabel"
+		role == "ImageLabel"
 		and (not layer.tiles or #layer.tiles == 0)
 		and not layer.backgroundColor
+		and not layer.imageAssetId
 	then
-		instance.Visible = false
 		instance:SetAttribute("UIImporterMissingArtwork", true)
 	end
 
 	if layer.children then
 		for _, child in ipairs(layer.children) do
-			createLayer(child, instance, bounds, canvasBounds, sourceType, useCompositeArtwork, childLayout)
+			local inContent = hasContentContainer and child.layoutPositioning ~= "ABSOLUTE"
+			local childParent = if inContent then flowParent else instance
+			local childBounds = if inContent then AutoLayoutMapper.contentBounds(bounds, layer) else bounds
+			createLayer(child, childParent, childBounds, canvasBounds, sourceType, childLayout, job)
 		end
 	end
 
@@ -1025,35 +744,37 @@ local function walkLayers(layers, callback)
 	end
 end
 
-local function countContentTiles(layers, nativeOnly)
+local function countContentTiles(layers)
 	local count = 0
 	walkLayers(layers, function(layer)
-		if
-			layer.visible
-			and not MODIFIER_ROLES[getLayerRole(layer)]
-			and (not nativeOnly or layer.subtreeRequiresRenderedFallback == false)
-		then
+		if not MODIFIER_ROLES[getLayerRole(layer)] then
 			count += AssetUploader.countTiles(layer)
 		end
 	end)
 	return count
 end
 
-local function embedLayerArtwork(document, progressCallback, nativeOnly)
-	local totalTiles = countContentTiles(document.tree, nativeOnly)
+local function embedLayerArtwork(document, progressCallback, job, options)
+	local totalTiles = countContentTiles(document.tree)
 	local embeddedTiles = 0
 	local embeddedImages = 0
+	local cache = {}
 
 	walkLayers(document.tree, function(layer)
-		if
-			not layer.visible
-			or not layer.pixels
-			or MODIFIER_ROLES[getLayerRole(layer)]
-			or (nativeOnly and layer.subtreeRequiresRenderedFallback ~= false)
-		then
+		if layer.imageAssetId or not layer.pixels or MODIFIER_ROLES[getLayerRole(layer)] then
 			return
 		end
 
+		local cached = cache[layer.pixels]
+		local pixelWidth = layer.pixelWidth or layer.width
+		local pixelHeight = layer.pixelHeight or layer.height
+		if cached and cached.width == pixelWidth and cached.height == pixelHeight then
+			layer.tiles = cached.tiles
+			layer.pixels = nil
+			embeddedTiles += #cached.tiles
+			return
+		end
+		local pixels = layer.pixels
 		local tiles, contentError = AssetUploader.createLayerContent(layer, function()
 			embeddedTiles += 1
 			if progressCallback then
@@ -1064,12 +785,13 @@ local function embedLayerArtwork(document, progressCallback, nativeOnly)
 					total = totalTiles,
 				})
 			end
-		end)
+		end, job, options)
 
 		if not tiles then
 			error(string.format("Could not embed design layer '%s': %s", layer.name, contentError))
 		end
 
+		cache[pixels] = { tiles = tiles, width = pixelWidth, height = pixelHeight }
 		layer.tiles = tiles
 		embeddedImages += #tiles
 		layer.pixels = nil
@@ -1078,7 +800,7 @@ local function embedLayerArtwork(document, progressCallback, nativeOnly)
 	return embeddedImages
 end
 
-local function embedCompositeArtwork(document, progressCallback)
+local function embedCompositeArtwork(document, progressCallback, job, options)
 	local compositeWidth = document.compositeWidth or document.width
 	local compositeHeight = document.compositeHeight or document.height
 	local compositeLayer = {
@@ -1102,7 +824,7 @@ local function embedCompositeArtwork(document, progressCallback)
 				total = totalTiles,
 			})
 		end
-	end)
+	end, job, options)
 
 	if not tiles then
 		error("Could not embed the rendered design reference: " .. tostring(contentError))
@@ -1144,7 +866,7 @@ local function addCompositeArtwork(canvas, document)
 	}, document.compositeTiles, false)
 end
 
-function UIBuilder.build(document, documentName, targetParent, progressCallback, options)
+local function buildInto(document, documentName, targetParent, progressCallback, options, job, layerCollector)
 	if progressCallback then
 		progressCallback({
 			stage = "Preparing",
@@ -1156,20 +878,25 @@ function UIBuilder.build(document, documentName, targetParent, progressCallback,
 
 	local sourceType = document.sourceType or "PSD"
 	local shouldEmbedImages = not options or options.embedImages ~= false
-	local useCompositeArtwork = shouldEmbedImages
-		and document.compositePixels ~= nil
-		and (
-			(sourceType == "PSD" and document.hasLayerEffects == true)
-			or (sourceType == "FIG" and document.preferCompositeArtwork)
-		)
+	local visualMode = RenderPolicy.prepare(document, options)
+	local useCompositeArtwork = visualMode == "Reference"
 	local embeddedImages = 0
 	if useCompositeArtwork then
-		if sourceType == "FIG" then
-			embeddedImages += embedLayerArtwork(document, progressCallback, true)
-		end
-		embeddedImages += embedCompositeArtwork(document, progressCallback)
+		embeddedImages = embedCompositeArtwork(document, progressCallback, job, options)
 	elseif shouldEmbedImages then
-		embeddedImages = embedLayerArtwork(document, progressCallback, false)
+		embeddedImages = embedLayerArtwork(document, progressCallback, job, options)
+	end
+	local imageStorage = options and options.imageStorage or "Session"
+	if embeddedImages > 0 and imageStorage == "Session" then
+		table.insert(
+			document.warnings,
+			"Artwork is temporary for this Studio session. Reimport with Upload to Roblox before saving or shipping image-based UI."
+		)
+	elseif embeddedImages > 0 then
+		table.insert(
+			document.warnings,
+			"Uploaded artwork must pass Roblox moderation and have permission to load in the target experience. Undo does not delete uploaded assets."
+		)
 	end
 	local layerCollectorClass = if options and options.layerCollectorClass
 		then options.layerCollectorClass
@@ -1193,7 +920,6 @@ function UIBuilder.build(document, documentName, targetParent, progressCallback,
 		height = document.height,
 	}
 
-	local layerCollector = Instance.new(layerCollectorClass)
 	layerCollector.Name = uniqueName(targetParent, toInstanceName(documentName, "ImportedUI"))
 
 	if layerCollector:IsA("ScreenGui") then
@@ -1214,7 +940,7 @@ function UIBuilder.build(document, documentName, targetParent, progressCallback,
 		)
 	elseif layerCollector:IsA("BillboardGui") then
 		layerCollector.AlwaysOnTop = true
-		layerCollector.Size = UDim2.fromOffset(document.width, document.height)
+		layerCollector.Size = UDim2.fromScale(10, 10 * document.height / document.width)
 		layerCollector.StudsOffset = Vector3.new(0, 3, 0)
 		layerCollector:SetAttribute(
 			"UIImporterSetupRequired",
@@ -1222,17 +948,16 @@ function UIBuilder.build(document, documentName, targetParent, progressCallback,
 		)
 	end
 
-	layerCollector.ZIndexBehavior = Enum.ZIndexBehavior.Global
+	layerCollector.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	layerCollector:SetAttribute("UIImporterGenerated", true)
 	layerCollector:SetAttribute("UIImporterSource", sourceType)
 	layerCollector:SetAttribute("UIImporterCanvasWidth", document.width)
 	layerCollector:SetAttribute("UIImporterCanvasHeight", document.height)
 	layerCollector:SetAttribute("UIImporterResponsiveMode", responsiveMode)
 	layerCollector:SetAttribute("UIImporterDeviceSafe", layerCollector:IsA("ScreenGui"))
-	layerCollector:SetAttribute(
-		"UIImporterVisualMode",
-		if useCompositeArtwork then "CompositeOverlay" else "LayerArtwork"
-	)
+	layerCollector:SetAttribute("UIImporterVisualMode", visualMode)
+	layerCollector:SetAttribute("UIImporterSchemaVersion", document.schemaVersion or 1)
+	layerCollector:SetAttribute("UIImporterImageStorage", if embeddedImages == 0 then "None" else imageStorage)
 	layerCollector:AddTag("UIImporterGenerated")
 
 	local canvas = Instance.new("Frame")
@@ -1260,21 +985,41 @@ function UIBuilder.build(document, documentName, targetParent, progressCallback,
 		addCompositeArtwork(canvas, document)
 	end
 
-	for _, layer in ipairs(document.tree) do
-		createLayer(layer, canvas, canvasBounds, canvasBounds, sourceType, useCompositeArtwork, nil)
+	if not useCompositeArtwork then
+		if job then
+			job:progress({ stage = "Building", message = "Creating editable Roblox layers..." })
+		end
+		for _, layer in ipairs(document.tree) do
+			createLayer(layer, canvas, canvasBounds, canvasBounds, sourceType, nil, job)
+		end
 	end
 
-	layerCollector.Parent = targetParent
-
+	ImportIdentity.stamp(layerCollector, sourceType .. ":" .. (document.documentId or documentName))
+	layerCollector:SetAttribute("UIImporterStableIds", document.stableIds ~= false)
 	return {
 		root = layerCollector,
 		screenGui = layerCollector,
-		layerCount = #document.layers,
+		layerCount = if useCompositeArtwork then 0 else #document.layers,
 		imageCount = embeddedImages,
 		assetCount = embeddedImages,
-		visualMode = if useCompositeArtwork then "CompositeOverlay" else "LayerArtwork",
+		visualMode = visualMode,
 		warnings = document.warnings,
 	}
+end
+
+-- Build detached so errors and cancellation cannot leave partial trees in the game.
+function UIBuilder.build(document, documentName, targetParent, progressCallback, options, job)
+	local className = options and options.layerCollectorClass or "ScreenGui"
+	if className ~= "ScreenGui" and className ~= "SurfaceGui" and className ~= "BillboardGui" then
+		error("Unsupported UI root: " .. tostring(className), 0)
+	end
+	local root = Instance.new(className)
+	local ok, result = pcall(buildInto, document, documentName, targetParent, progressCallback, options, job, root)
+	if not ok then
+		root:Destroy()
+		error(result, 0)
+	end
+	return result
 end
 
 return UIBuilder

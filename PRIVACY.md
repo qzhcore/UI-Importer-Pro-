@@ -1,22 +1,22 @@
 # Privacy
 
-UI Importer Pro 0.3.0-beta.3 reads the design file chosen through Roblox
-Studio's local file picker. The plugin does not include analytics, advertising,
-telemetry, account login, or intentional HTTP requests.
+UI Importer Pro reads only the design file chosen through Roblox Studio's local
+file picker. It has no analytics, advertising, telemetry, separate account login,
+or custom HTTP client.
 
-Decoded image pixels are converted into DataModel-scoped content with Roblox
-Studio's `AssetService`. The plugin does not publish the source PSD or `.fig` as
-a public marketplace asset.
+**Session preview** converts decoded artwork into temporary content through Roblox
+Studio's AssetService. This content is scoped to the current Studio session.
 
-Important limits:
+**Upload to Roblox** explicitly uploads decoded image tiles to Roblox under the
+owner selected in the plugin. Uploaded images include a name derived from the
+source layer. They are subject to Roblox's moderation, permissions, and retention
+rules. Cancelling or undoing an import does not delete uploaded assets. The plugin
+does not upload the source PSD or FIG file itself.
 
-- The generated place file can contain embedded visual content derived from the
-  selected design.
-- Anyone who receives that place or model may be able to view the generated UI.
-- Do not share a reproduction place, PSD, `.fig`, screenshot, or Output log if
-  it contains confidential client artwork or personal information.
-- Community support should accept minimal reproduction files and never require
-  users to post private production designs publicly.
+Generated native UI includes design text, names, and source metadata. Anyone who
+receives the place or model may be able to view those details and its artwork.
+Avoid sharing confidential designs or Output logs as public bug reports; use
+minimal reproduction files instead.
 
 Review source changes before installing unofficial builds. Download official
 builds only from this repository's GitHub Releases page.

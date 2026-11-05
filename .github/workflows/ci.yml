@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - "refactor/**"
   pull_request:
 
 jobs:
@@ -19,13 +20,27 @@ jobs:
       - name: Install tools
         run: aftman install
 
-      - name: Test Figma layout mapping
-        run: lune run tests/run.luau
+      - name: Test import pipeline and layout mapping
+        run: |
+          lune run tests/run.luau
+          lune run tests/import_pipeline.luau
+          lune run tests/assets.luau
+          lune run tests/appearance.luau
+          lune run tests/architecture.luau
 
       - name: Lint
         run: |
+          stylua --check src tests
           selene src
           selene --config tests/selene.toml tests
 
       - name: Build plugin
-        run: rojo build default.project.json --output UIImporterPro.rbxm
+        run: |
+          rojo build default.project.json --output UIImporterPro.rbxm
+          lune run tests/verify_build.luau UIImporterPro.rbxm
+
+      - name: Upload testable plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: UIImporterPro
+          path: UIImporterPro.rbxm

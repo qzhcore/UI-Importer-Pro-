@@ -34,7 +34,7 @@ local function paethPredictor(left, above, upperLeft)
 	return upperLeft
 end
 
-local function inflateZlib(data)
+local function inflateZlib(data, job, maxBytes)
 	if #data < 6 then
 		error("PNG image has a truncated zlib stream.")
 	end
@@ -48,10 +48,10 @@ local function inflateZlib(data)
 	if bit32.band(flags, 0x20) ~= 0 then
 		error("PNG image requires an unsupported preset zlib dictionary.")
 	end
-	return Deflate.decompress(string.sub(data, 3, -5))
+	return Deflate.decompress(string.sub(data, 3, -5), job, maxBytes)
 end
 
-local function unfilterRows(raw, width, height, channels, bitDepth)
+local function unfilterRows(raw, width, height, channels, bitDepth, job)
 	local rowBytes = math.ceil(width * channels * bitDepth / 8)
 	local bytesPerPixel = math.max(1, math.ceil(channels * bitDepth / 8))
 	local expected = (rowBytes + 1) * height
@@ -60,18 +60,21 @@ local function unfilterRows(raw, width, height, channels, bitDepth)
 	end
 
 	local rows = table.create(height)
-	local previous = table.create(rowBytes, 0)
+	local previous = buffer.create(rowBytes)
 	local position = 1
 	for rowIndex = 1, height do
+		if job then
+			job:checkpoint()
+		end
 		local filterType = string.byte(raw, position)
 		position += 1
-		local current = table.create(rowBytes, 0)
+		local current = buffer.create(rowBytes)
 		for column = 1, rowBytes do
 			local encoded = string.byte(raw, position)
 			position += 1
-			local left = if column > bytesPerPixel then current[column - bytesPerPixel] else 0
-			local above = previous[column] or 0
-			local upperLeft = if column > bytesPerPixel then previous[column - bytesPerPixel] or 0 else 0
+			local left = if column > bytesPerPixel then buffer.readu8(current, column - bytesPerPixel - 1) else 0
+			local above = buffer.readu8(previous, column - 1)
+			local upperLeft = if column > bytesPerPixel then buffer.readu8(previous, column - bytesPerPixel - 1) else 0
 			local predictor
 			if filterType == 0 then
 				predictor = 0
@@ -86,7 +89,7 @@ local function unfilterRows(raw, width, height, channels, bitDepth)
 			else
 				error(string.format("PNG row %d uses unknown filter %d.", rowIndex, filterType))
 			end
-			current[column] = (encoded + predictor) % 256
+			buffer.writeu8(current, column - 1, (encoded + predictor) % 256)
 		end
 		rows[rowIndex] = current
 		previous = current
@@ -98,7 +101,7 @@ local function packedSample(row, pixelIndex, bitDepth)
 	local bitPosition = pixelIndex * bitDepth
 	local byteIndex = math.floor(bitPosition / 8) + 1
 	local shift = 8 - bitDepth - (bitPosition % 8)
-	return bit32.band(bit32.rshift(row[byteIndex], shift), bit32.lshift(1, bitDepth) - 1)
+	return bit32.band(bit32.rshift(buffer.readu8(row, byteIndex - 1), shift), bit32.lshift(1, bitDepth) - 1)
 end
 
 local function writePixel(pixels, pixelIndex, red, green, blue, alpha)
@@ -109,7 +112,7 @@ local function writePixel(pixels, pixelIndex, red, green, blue, alpha)
 	buffer.writeu8(pixels, offset + 3, alpha)
 end
 
-local function rowsToPixels(rows, width, height, colorType, bitDepth, palette, transparency)
+local function rowsToPixels(rows, width, height, colorType, bitDepth, palette, transparency, job)
 	local pixels = buffer.create(width * height * 4)
 	local maximumSample = bit32.lshift(1, bitDepth) - 1
 	local transparentGray = if transparency and #transparency >= 2 then string.byte(transparency, 2) else nil
@@ -118,24 +121,34 @@ local function rowsToPixels(rows, width, height, colorType, bitDepth, palette, t
 	local transparentBlue = if transparency and #transparency >= 6 then string.byte(transparency, 6) else nil
 
 	for rowIndex = 1, height do
+		if job then
+			job:checkpoint()
+		end
 		local row = rows[rowIndex]
 		for column = 0, width - 1 do
 			local red, green, blue, alpha
 			if colorType == 0 then
-				local sample = if bitDepth == 8 then row[column + 1] else packedSample(row, column, bitDepth)
+				local sample = if bitDepth == 8
+					then buffer.readu8(row, (column + 1) - 1)
+					else packedSample(row, column, bitDepth)
 				local gray = math.floor(sample * 255 / maximumSample + 0.5)
 				red, green, blue = gray, gray, gray
 				alpha = if transparentGray ~= nil and sample == transparentGray then 0 else 255
 			elseif colorType == 2 then
 				local offset = column * 3
-				red, green, blue = row[offset + 1], row[offset + 2], row[offset + 3]
+				red, green, blue =
+					buffer.readu8(row, (offset + 1) - 1),
+					buffer.readu8(row, (offset + 2) - 1),
+					buffer.readu8(row, (offset + 3) - 1)
 				alpha = if red == transparentRed
 						and green == transparentGreen
 						and blue == transparentBlue
 					then 0
 					else 255
 			elseif colorType == 3 then
-				local paletteIndex = if bitDepth == 8 then row[column + 1] else packedSample(row, column, bitDepth)
+				local paletteIndex = if bitDepth == 8
+					then buffer.readu8(row, (column + 1) - 1)
+					else packedSample(row, column, bitDepth)
 				local paletteOffset = paletteIndex * 3
 				red = string.byte(palette, paletteOffset + 1)
 				green = string.byte(palette, paletteOffset + 2)
@@ -148,12 +161,16 @@ local function rowsToPixels(rows, width, height, colorType, bitDepth, palette, t
 					else 255
 			elseif colorType == 4 then
 				local offset = column * 2
-				red = row[offset + 1]
+				red = buffer.readu8(row, (offset + 1) - 1)
 				green, blue = red, red
-				alpha = row[offset + 2]
+				alpha = buffer.readu8(row, (offset + 2) - 1)
 			else
 				local offset = column * 4
-				red, green, blue, alpha = row[offset + 1], row[offset + 2], row[offset + 3], row[offset + 4]
+				red, green, blue, alpha =
+					buffer.readu8(row, (offset + 1) - 1),
+					buffer.readu8(row, (offset + 2) - 1),
+					buffer.readu8(row, (offset + 3) - 1),
+					buffer.readu8(row, (offset + 4) - 1)
 			end
 			writePixel(pixels, (rowIndex - 1) * width + column, red, green, blue, alpha)
 		end
@@ -161,7 +178,7 @@ local function rowsToPixels(rows, width, height, colorType, bitDepth, palette, t
 	return pixels
 end
 
-function PngDecoder.decode(data)
+function PngDecoder.decode(data, job)
 	if string.sub(data, 1, 8) ~= PNG_SIGNATURE then
 		error("Image is not a PNG file.")
 	end
@@ -226,12 +243,16 @@ function PngDecoder.decode(data)
 		error("PNG image has no pixel data.")
 	end
 
-	local raw = inflateZlib(table.concat(imageParts))
-	local rows = unfilterRows(raw, width, height, channels, bitDepth)
+	local expected = (math.ceil(width * channels * bitDepth / 8) + 1) * height
+	if job then
+		job:reserveBytes(width * height * 4 + expected)
+	end
+	local raw = inflateZlib(table.concat(imageParts), job, expected)
+	local rows = unfilterRows(raw, width, height, channels, bitDepth, job)
 	return {
 		width = width,
 		height = height,
-		pixels = rowsToPixels(rows, width, height, colorType, bitDepth, palette, transparency),
+		pixels = rowsToPixels(rows, width, height, colorType, bitDepth, palette, transparency, job),
 	}
 end
 
