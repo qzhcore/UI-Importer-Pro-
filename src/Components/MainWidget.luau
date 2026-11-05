@@ -1,18 +1,22 @@
 local MainWidget = {}
 
 local MainButton = require(script.Parent.MainButton)
+local ImportJob = require(script.Parent.Parent.Logic.ImportJob)
 
 function MainWidget.new(plugin, onAction)
-	local info = DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Right, false, false, 380, 540, 340, 500)
+	local info = DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Right, false, false, 400, 690, 340, 500)
 
 	local widget = plugin:CreateDockWidgetPluginGuiAsync("UIImporterProWidget", info)
 	widget.Title = "UI Importer Pro"
 
-	local container = Instance.new("Frame")
+	local container = Instance.new("ScrollingFrame")
 	container.Name = "Container"
 	container.Size = UDim2.fromScale(1, 1)
 	container.BackgroundColor3 = Color3.fromRGB(37, 37, 40)
 	container.BorderSizePixel = 0
+	container.CanvasSize = UDim2.new()
+	container.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	container.ScrollBarThickness = 5
 	container.Parent = widget
 
 	local padding = Instance.new("UIPadding")
@@ -62,7 +66,7 @@ function MainWidget.new(plugin, onAction)
 	compatibility.BackgroundColor3 = Color3.fromRGB(48, 48, 53)
 	compatibility.BorderSizePixel = 0
 	compatibility.Font = Enum.Font.Gotham
-	compatibility.Text = "PSD (RGB, 8-bit, Raw/RLE) - Native Figma .fig"
+	compatibility.Text = "PSD (RGB, 8-bit, Raw/RLE) - FIG - JSON schema v1"
 	compatibility.TextColor3 = Color3.fromRGB(145, 205, 255)
 	compatibility.TextSize = 12
 	compatibility.TextWrapped = true
@@ -100,6 +104,12 @@ function MainWidget.new(plugin, onAction)
 	local selectedTarget = "ScreenGui"
 	local targetButtons = {}
 	local busy = false
+	local activeJob
+	plugin.Unloading:Connect(function()
+		if activeJob then
+			activeJob:cancel()
+		end
+	end)
 
 	local function updateTargetButtons()
 		for className, targetButton in pairs(targetButtons) do
@@ -202,9 +212,102 @@ function MainWidget.new(plugin, onAction)
 	addSizingButton("PreserveAspect", "Preserve aspect", 2)
 	updateSizingButtons()
 
+	local visualMode = "Editable"
+	local updateMode
+	local modeButton = MainButton.new(container, "Artwork: Editable layers", function()
+		if not busy then
+			visualMode = if visualMode == "Editable" then "Reference" else "Editable"
+			updateMode()
+		end
+	end)
+	modeButton.Name = "ArtworkMode"
+	modeButton.LayoutOrder = 8
+	local modeDescription = Instance.new("TextLabel")
+	modeDescription.Name = "ArtworkModeDescription"
+	modeDescription.LayoutOrder = 9
+	modeDescription.Size = UDim2.new(1, 0, 0, 52)
+	modeDescription.BackgroundTransparency = 1
+	modeDescription.TextColor3 = Color3.fromRGB(190, 190, 195)
+	modeDescription.TextSize = 12
+	modeDescription.Font = Enum.Font.Gotham
+	modeDescription.TextWrapped = true
+	modeDescription.TextXAlignment = Enum.TextXAlignment.Left
+	modeDescription.Parent = container
+	updateMode = function()
+		modeButton.Text = if visualMode == "Editable" then "Artwork: Editable layers" else "Artwork: Reference image"
+		modeDescription.Text = if visualMode == "Editable"
+			then "Creates editable controls. Unsupported effects are reported in Output and on the affected layers."
+			else "Creates a static image without controls. Figma uses its exported thumbnail, which may show another region."
+	end
+	updateMode()
+
+	local imageStorage = "Session"
+	local assetOwner = if game.CreatorId > 0 then "Experience" else "User"
+	local updateStorage
+	local storageButton = MainButton.new(container, "Images: Session preview", function()
+		if not busy then
+			imageStorage = if imageStorage == "Session" then "RobloxAsset" else "Session"
+			updateStorage()
+		end
+	end)
+	storageButton.Name = "ImageStorage"
+	storageButton.LayoutOrder = 10
+	local ownerButton = MainButton.new(container, "", function()
+		if not busy then
+			assetOwner = if assetOwner == "Experience" then "User" else "Experience"
+			updateStorage()
+		end
+	end)
+	ownerButton.Name = "ArtworkOwner"
+	ownerButton.LayoutOrder = 11
+	local storageDescription = Instance.new("TextLabel")
+	storageDescription.Name = "ImageStorageDescription"
+	storageDescription.LayoutOrder = 12
+	storageDescription.Size = UDim2.new(1, 0, 0, 90)
+	storageDescription.BackgroundTransparency = 1
+	storageDescription.Font = Enum.Font.Gotham
+	storageDescription.TextSize = 12
+	storageDescription.TextColor3 = Color3.fromRGB(255, 205, 130)
+	storageDescription.TextWrapped = true
+	storageDescription.TextXAlignment = Enum.TextXAlignment.Left
+	storageDescription.Parent = container
+	updateStorage = function()
+		storageButton.Text = if imageStorage == "Session" then "Images: Session preview" else "Images: Upload to Roblox"
+		ownerButton.Visible = imageStorage == "RobloxAsset"
+		ownerButton.Text = if assetOwner == "Experience"
+			then "Asset owner: Experience creator"
+			else "Asset owner: My account"
+		storageDescription.Text = if imageStorage == "Session"
+			then "Preview artwork is temporary and will not survive restarting Studio. Use Upload to Roblox for persistent images. Native text and shapes are saved normally."
+			else "Import uploads image tiles to Roblox under the selected owner. Requires the locally installed plugin. Assets undergo moderation; cancel and undo do not remove uploads."
+	end
+	updateStorage()
+	local includeBackground = false
+	local backgroundButton
+	backgroundButton = MainButton.new(container, "Document background: Excluded", function()
+		if not busy then
+			includeBackground = not includeBackground
+			backgroundButton.Text = if includeBackground
+				then "Document background: Included"
+				else "Document background: Excluded"
+		end
+	end)
+	backgroundButton.Name = "IncludeBackground"
+	backgroundButton.LayoutOrder = 13
+	local reimportSelected = false
+	local workflowButton
+	workflowButton = MainButton.new(container, "Import: Create new", function()
+		if not busy then
+			reimportSelected = not reimportSelected
+			workflowButton.Text = if reimportSelected then "Import: Update selected import" else "Import: Create new"
+		end
+	end)
+	workflowButton.Name = "ImportWorkflow"
+	workflowButton.LayoutOrder = 14
+
 	local status = Instance.new("TextLabel")
 	status.Name = "Status"
-	status.LayoutOrder = 9
+	status.LayoutOrder = 18
 	status.Size = UDim2.new(1, 0, 0, 58)
 	status.BackgroundTransparency = 1
 	status.Font = Enum.Font.Gotham
@@ -217,29 +320,54 @@ function MainWidget.new(plugin, onAction)
 	status.Parent = container
 
 	local importButton
+	local cancelButton = MainButton.new(container, "Cancel import", function()
+		if activeJob then
+			activeJob:cancel()
+			status.Text = "Cancelling import..."
+		end
+	end)
+	cancelButton.Name = "CancelImport"
+	cancelButton.LayoutOrder = 17
+	cancelButton.Visible = false
 	importButton = MainButton.new(container, "Import Design File…", function()
 		if busy then
 			return
 		end
 
 		busy = true
+		cancelButton.Visible = true
 		importButton.Text = "Importing…"
 		importButton.AutoButtonColor = false
 		status.Text = "Opening file picker…"
 		status.TextColor3 = Color3.fromRGB(145, 205, 255)
 
-		local ok, succeeded, message = pcall(onAction, function(update)
+		local function onProgress(update)
 			if update.message then
 				status.Text = update.message
 			elseif update.stage == "Embedding" then
 				status.Text = string.format("Embedding %s (%d/%d)…", update.layerName, update.current, update.total)
 			end
-		end, {
+		end
+		activeJob = ImportJob.new({
+			progressCallback = onProgress,
+			yieldCallback = function()
+				task.wait()
+			end,
+		})
+		local ok, succeeded, message = pcall(onAction, onProgress, {
 			layerCollectorClass = selectedTarget,
 			responsiveMode = selectedSizing,
+			visualMode = visualMode,
+			imageStorage = imageStorage,
+			assetOwner = assetOwner,
+			includeBackground = includeBackground,
+			reimportSelected = reimportSelected,
+			job = activeJob,
 		})
 
 		busy = false
+		activeJob = nil
+		cancelButton.Visible = false
 		importButton.Text = "Import Design File…"
 		importButton.AutoButtonColor = true
 
@@ -252,7 +380,7 @@ function MainWidget.new(plugin, onAction)
 		status.Text = tostring(message)
 		status.TextColor3 = if succeeded then Color3.fromRGB(110, 220, 145) else Color3.fromRGB(255, 190, 95)
 	end)
-	importButton.LayoutOrder = 8
+	importButton.LayoutOrder = 16
 
 	return widget
 end

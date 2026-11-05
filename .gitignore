@@ -1,5 +1,6 @@
 # --- Roblox ---
 *.rbxm
+!/dist/UIImporterPro.rbxm
 *.rbxmx
 *.lock
 .rojo/

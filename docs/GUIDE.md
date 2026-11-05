@@ -3,6 +3,8 @@
 This guide covers installation, design preparation, importing, testing, and the
 handoff to scripting.
 
+For the current branch build, use [these test/install instructions](TEST_BUILD.md).
+
 ## 1. Install the plugin
 
 1. Download `UIImporterPro.rbxm` from the
@@ -74,14 +76,15 @@ A wide desktop PSD may still need a redesigned portrait layout.
 
 ## 5. Import
 
+Choose **Editable layers** for working UI or **Reference image** for a static image without controls.
+
 1. Click **Import Design File…**.
 2. Choose a supported `.psd` or native `.fig`.
-3. Wait for the status message to turn green.
+3. Watch progress or click **Cancel import**. Review any warnings in Output.
 4. Roblox Studio selects the newly generated root in `StarterGui`.
 
-An import creates a new root; it does not merge with an older import. If you
-import the same file again, compare the new version first, then delete the old
-root when you are satisfied.
+Create new is the default. To preserve scripted UI while applying source changes,
+select an imported root or its child and choose **Update selected import**.
 
 Use **Undo** immediately after an import to remove the complete generated
 hierarchy in one operation.
@@ -94,7 +97,6 @@ A typical import looks like this:
 StarterGui
 └── MyDesign
     └── Canvas
-        ├── RenderedDesign
         ├── Header
         ├── CloseButton
         └── Content
@@ -102,9 +104,12 @@ StarterGui
             └── ItemName
 ```
 
-`RenderedDesign` appears when Photoshop effects are preserved through the
-document composite. It supplies the exact visual appearance. The named objects
-aligned over it are the semantic Roblox controls used for scripts.
+Editable imports keep their controls visible and independently editable.
+Figma auto-layout children live under an internal `LayoutContent` frame;
+absolute-positioned children stay directly under their design parent.
+Use recursive lookup or source IDs instead of assuming an exact child path.
+
+Reference imports contain only `RenderedDesign` and its image tiles.
 
 Every generated object has the `UIImporterGenerated` tag. Important attributes
 include:
@@ -113,6 +118,8 @@ include:
 - `UIImporterRole`
 - `UIImporterSource`
 - `UIImporterLayerIndex`
+- `UIImporterSourceId` (native source ID where available; otherwise a hierarchy path)
+- `UIImporterWarning` (when features are approximated)
 - `UIImporterBlendMode`
 - `UIImporterVisualSource`
 
@@ -149,7 +156,7 @@ Use Studio's Device Emulator and verify:
 - console/gamepad selection;
 - safe-area insets;
 - text wrapping and localization;
-- minimum touch target size;
+- warnings for small touch targets, with source dimensions preserved;
 - scrolling; and
 - SurfaceGui/BillboardGui distance behavior if used.
 
@@ -158,14 +165,42 @@ Also test Play mode. The root is copied from `StarterGui` to each player's
 
 ## 10. Re-import safely
 
-Treat the source design as the visual source of truth and keep gameplay logic in
-separate scripts.
+1. Keep a backup of the current UI.
+2. Select one imported root or one of its children.
+3. Choose **Import: Update selected import** and select the updated source file.
+4. Keep the document ID/file name and source layer IDs unchanged.
+5. Verify visual changes, retained scripts/attributes, and Undo/Redo in a test place.
 
-1. Rename or duplicate the current generated root as a backup.
-2. Import the updated design.
-3. Move or reconnect scripts to the new semantic controls.
-4. Re-test all target devices.
-5. Delete the old root only after verification.
+Existing instances are never destroyed, renamed, or reparented. Deleted source nodes
+remain with warnings; class conflicts and ambiguous IDs reject the update.
+See [architecture](ARCHITECTURE.md) for the property allowlist and limitations.
 
 Do not expect manual edits inside `RenderedDesign` or generated artwork tiles to
 round-trip back into Photoshop or Figma.
+
+## Image storage
+
+Choose **Images: Session preview** to inspect temporary artwork without uploading.
+These images will not survive restarting Studio. Native text and shapes save normally.
+
+For persistent artwork, choose **Images: Upload to Roblox** and either **Experience
+creator** or **My account** before importing. The experience-owner option requires a
+published place and upload permission for that owner. This feature requires the
+locally installed plugin. Each unique image tile is uploaded as an image asset.
+
+Cancellation and Undo cannot remove remote uploads. On failure, Output lists asset
+IDs that were already created. Review moderation and experience permissions, then
+test save/reopen and a published client before shipping.
+
+See [Artwork Storage](ARTWORK_STORAGE.md) for the supported workflow and limits.
+
+## Document backgrounds
+
+The document backdrop is excluded by default; panel, card, and button backgrounds
+remain. Detection is conservative: a root leaf must cover the canvas and have a
+recognized background name. Explicit class markers such as `[Frame] Background`
+override detection. Toggle **Document background: Included** to retain a backdrop.
+
+Reference mode uses a flattened source image. If a document background is detected,
+the plugin requires explicit inclusion instead of silently importing that background.
+An arbitrary image's background cannot always be separated from its UI.

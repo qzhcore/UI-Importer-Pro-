@@ -1,8 +1,19 @@
 # Changelog
 
-All notable changes to UI Importer Pro are documented here.
+## 0.4.0-beta.1 - 2026-11-04
 
-## [Unreleased]
+- Add schema-v1 JSON/API ingestion, strict ID validation, and actionable failures.
+- Use Scale-only parent-relative geometry, alignment anchors, aspect safeguards, and bounded responsive text.
+- Map native list/grid/flex layouts, correcting child and gap sizing for padded content bounds.
+- Add supported font families, escaped RichText, explicit transparent image fallbacks, and Sibling layer ordering.
+- Add non-destructive ID-based updates with a visual allowlist, preflight conflicts, cancellation rollback, and Studio undo ownership.
+- Preserve scripts, attributes, sounds, names, connections, and existing instance identities during updates.
+- Separate editable controls from static references, exclude document backdrops by default, and parse basic PSD masks/color overlays/text strokes.
+- Separate temporary artwork from explicit Roblox uploads; retain receipts for partial uploads.
+- Bound decoder memory/layer counts, compile the packaged build, add regression suites and a public JSON example.
+- Exact complex PSD/FIG visual fidelity, persistent-upload acceptance, and Creator Store distribution remain incomplete.
+
+## Earlier development changes (superseded where noted above)
 
 ### Added
 

@@ -25,8 +25,14 @@ rojo build default.project.json --output UIImporterPro.rbxm
 3. Run:
 
    ```bash
-   stylua --check src
+   lune run tests/run.luau
+   lune run tests/import_pipeline.luau
+   lune run tests/assets.luau
+   lune run tests/appearance.luau
+lune run tests/architecture.luau
+   stylua --check src tests
    selene src
+   selene --config tests/selene.toml tests
    rojo build default.project.json --output UIImporterPro.rbxm
    ```
 

@@ -315,11 +315,31 @@ local function getDynamicTrees(reader)
 	return buildHuffman(literalLengths), buildHuffman(distanceLengths)
 end
 
+local function appendByte(output, value)
+	if output.length >= output.limit then
+		error("Decompressed data exceeds its size limit.", 0)
+	end
+	if output.length == buffer.len(output.data) then
+		local capacity = math.min(output.limit, math.max(1024, output.length * 2))
+		if output.job then
+			output.job:reserveBytes(capacity - buffer.len(output.data))
+		end
+		local expanded = buffer.create(capacity)
+		buffer.copy(expanded, 0, output.data)
+		output.data = expanded
+	end
+	buffer.writeu8(output.data, output.length, value)
+	output.length += 1
+	if output.job and output.length % 8192 == 0 then
+		output.job:checkpoint()
+	end
+end
+
 local function decodeCompressedBlock(reader, output, literalTree, distanceTree)
 	while true do
 		local symbol = decodeSymbol(reader, literalTree)
 		if symbol < 256 then
-			table.insert(output, symbol)
+			appendByte(output, symbol)
 		elseif symbol == 256 then
 			return
 		elseif symbol <= 285 then
@@ -332,12 +352,12 @@ local function decodeCompressedBlock(reader, output, literalTree, distanceTree)
 
 			local distanceIndex = distanceSymbol + 1
 			local distance = DISTANCE_BASE[distanceIndex] + readBits(reader, DISTANCE_EXTRA[distanceIndex])
-			if distance > #output then
+			if distance > output.length then
 				error(
 					string.format(
 						"DEFLATE distance %d points before output byte %d (literal symbol %d, distance symbol %d).",
 						distance,
-						#output,
+						output.length,
 						symbol,
 						distanceSymbol
 					)
@@ -345,8 +365,8 @@ local function decodeCompressedBlock(reader, output, literalTree, distanceTree)
 			end
 
 			for _ = 1, length do
-				table.insert(output, output[#output - distance + 1])
-				if #output > MAX_OUTPUT_BYTES then
+				appendByte(output, buffer.readu8(output.data, output.length - distance))
+				if output.length > MAX_OUTPUT_BYTES then
 					error("Decompressed data exceeds the 128 MB safety limit.")
 				end
 			end
@@ -356,19 +376,13 @@ local function decodeCompressedBlock(reader, output, literalTree, distanceTree)
 	end
 end
 
-local function bytesToString(bytes)
-	local parts = {}
-	local chunkSize = 4096
-	for startIndex = 1, #bytes, chunkSize do
-		local endIndex = math.min(#bytes, startIndex + chunkSize - 1)
-		table.insert(parts, string.char(table.unpack(bytes, startIndex, endIndex)))
-	end
-	return table.concat(parts)
-end
-
-function Deflate.decompress(data)
+function Deflate.decompress(data, job, maxBytes)
 	local reader = newBitReader(data)
-	local output = {}
+	local limit = math.min(MAX_OUTPUT_BYTES, maxBytes or MAX_OUTPUT_BYTES)
+	if job then
+		job:reserveBytes(math.min(65536, limit))
+	end
+	local output = { data = buffer.create(math.min(65536, limit)), length = 0, limit = limit, job = job }
 	local isFinal = false
 
 	while not isFinal do
@@ -385,7 +399,7 @@ function Deflate.decompress(data)
 				error("Invalid uncompressed DEFLATE block length.")
 			end
 			for _ = 1, length do
-				table.insert(output, readBits(reader, 8))
+				appendByte(output, readBits(reader, 8))
 			end
 		elseif blockType == 1 then
 			local literalTree, distanceTree = getFixedTrees()
@@ -397,12 +411,15 @@ function Deflate.decompress(data)
 			error("Reserved DEFLATE block type.")
 		end
 
-		if #output > MAX_OUTPUT_BYTES then
+		if output.length > MAX_OUTPUT_BYTES then
 			error("Decompressed data exceeds the 128 MB safety limit.")
 		end
 	end
 
-	return bytesToString(output)
+	if job then
+		job:reserveBytes(output.length)
+	end -- returned string also occupies memory
+	return buffer.readstring(output.data, 0, output.length)
 end
 
 return Deflate

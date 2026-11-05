@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "documentId": "ui-importer-responsive-demo",
+  "width": 1920,
+  "height": 1080,
+  "tree": [
+    {
+      "id": "backdrop",
+      "name": "Background",
+      "width": 1920,
+      "height": 1080,
+      "suggestedRole": "Frame",
+      "backgroundColor": { "r": 0.3, "g": 0.3, "b": 0.3 }
+    },
+    {
+      "id": "menu",
+      "name": "Menu",
+      "x": 480,
+      "y": 270,
+      "width": 960,
+      "height": 540,
+      "suggestedRole": "Frame",
+      "backgroundColor": { "r": 0.06, "g": 0.07, "b": 0.1 },
+      "cornerRadius": 24,
+      "strokeColor": { "r": 0.2, "g": 0.6, "b": 1, "a": 1 },
+      "strokeThickness": 2,
+      "constraints": { "horizontal": "CENTER", "vertical": "CENTER" },
+      "children": [
+        {
+          "id": "title",
+          "name": "Title",
+          "x": 48,
+          "y": 36,
+          "width": 760,
+          "height": 72,
+          "suggestedRole": "TextLabel",
+          "fontFamily": "BuilderSans",
+          "textSize": 36,
+          "textRuns": [
+            { "text": "YOUR " },
+            { "text": "INVENTORY", "bold": true, "color": { "r": 0.3, "g": 0.7, "b": 1 } }
+          ]
+        },
+        {
+          "id": "close",
+          "name": "Close",
+          "x": 852,
+          "y": 36,
+          "width": 60,
+          "height": 60,
+          "suggestedRole": "TextButton",
+          "text": "X",
+          "textSize": 28,
+          "preserveAspectRatio": true,
+          "constraints": { "horizontal": "MAX", "vertical": "MIN" }
+        },
+        {
+          "id": "items",
+          "name": "Items",
+          "x": 48,
+          "y": 156,
+          "width": 864,
+          "height": 300,
+          "suggestedRole": "Frame",
+          "layoutMode": "HORIZONTAL",
+          "layoutGap": 24,
+          "paddingLeft": 12,
+          "paddingTop": 12,
+          "counterAxisAlignItems": "CENTER",
+          "children": [
+            {
+              "id": "slot-1",
+              "name": "SlotOne",
+              "width": 240,
+              "height": 240,
+              "suggestedRole": "Frame",
+              "preserveAspectRatio": true,
+              "backgroundColor": { "r": 0.1, "g": 0.3, "b": 0.65 },
+              "cornerRadius": 18
+            },
+            {
+              "id": "slot-2",
+              "name": "SlotTwo",
+              "width": 240,
+              "height": 240,
+              "suggestedRole": "Frame",
+              "preserveAspectRatio": true,
+              "backgroundColor": { "r": 0.4, "g": 0.2, "b": 0.65 },
+              "cornerRadius": 18
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

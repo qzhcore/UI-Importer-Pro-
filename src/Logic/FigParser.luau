@@ -1,7 +1,7 @@
 local Deflate = require(script.Parent.Deflate)
 local FigmaLayout = require(script.Parent.FigmaLayout)
 local FigmaVisual = require(script.Parent.FigmaVisual)
-local ImageResampler = require(script.Parent.ImageResampler)
+local ImportJob = require(script.Parent.ImportJob)
 local PngDecoder = require(script.Parent.PngDecoder)
 
 local FigParser = {}
@@ -36,7 +36,7 @@ local function readU32LE(data, position)
 	return first + second * 256 + third * 65536 + fourth * 16777216
 end
 
-local function extractZipEntries(archive)
+local function extractZipEntries(archive, job)
 	local searchStart = math.max(1, #archive - 65557)
 	local eocdPosition
 	local cursor = searchStart
@@ -58,7 +58,9 @@ local function extractZipEntries(archive)
 	local centralPosition = readU32LE(archive, eocdPosition + 16) + 1
 
 	local entries = {}
+	local totalBytes = 0
 	for _ = 1, entryCount do
+		job:checkpoint()
 		if string.sub(archive, centralPosition, centralPosition + 3) ~= "PK\001\002" then
 			error("This .fig ZIP archive has a damaged central directory.")
 		end
@@ -88,12 +90,20 @@ local function extractZipEntries(archive)
 			local localFilenameLength = readU16LE(archive, localPosition + 26)
 			local localExtraLength = readU16LE(archive, localPosition + 28)
 			local dataStart = localPosition + 30 + localFilenameLength + localExtraLength
+			if dataStart + compressedSize - 1 > #archive then
+				error("Truncated .fig archive entry.")
+			end
+			totalBytes += uncompressedSize
+			if totalBytes > job.limits.archiveBytes then
+				error("The .fig archive exceeds the total decoded archive limit.")
+			end
 			local compressed = string.sub(archive, dataStart, dataStart + compressedSize - 1)
 
 			if compressionMethod == 0 then
+				job:reserveBytes(compressedSize)
 				entries[filename] = compressed
 			elseif compressionMethod == 8 then
-				entries[filename] = Deflate.decompress(compressed)
+				entries[filename] = Deflate.decompress(compressed, job, uncompressedSize)
 			else
 				error(string.format("Unsupported ZIP compression method %d in %s.", compressionMethod, filename))
 			end
@@ -111,9 +121,9 @@ local function extractZipEntries(archive)
 	return entries
 end
 
-local function getFigSource(data)
+local function getFigSource(data, job)
 	if string.sub(data, 1, 2) == "PK" then
-		local entries = extractZipEntries(data)
+		local entries = extractZipEntries(data, job)
 		local canvasData = entries["canvas.fig"] or entries.canvas
 		if not canvasData then
 			error("This .fig archive does not contain canvas.fig.")
@@ -231,24 +241,35 @@ function Reader:bytes(count)
 	return value
 end
 
-local function decompressSegment(segment)
+local function decompressSegment(segment, job)
 	if #segment > MAX_SEGMENT_BYTES then
 		error("Compressed .fig segment exceeds the 128 MB safety limit.")
 	end
 
 	if string.sub(segment, 1, 4) == ZSTD_MAGIC then
 		local EncodingService = game:GetService("EncodingService")
-		local decompressed =
-			EncodingService:DecompressBuffer(buffer.fromstring(segment), Enum.CompressionAlgorithm.Zstd)
+		local compressed = buffer.fromstring(segment)
+		local expectedSize = EncodingService:GetDecompressedBufferSize(compressed, Enum.CompressionAlgorithm.Zstd)
+		if not expectedSize or expectedSize > MAX_SEGMENT_BYTES then
+			job:fail("Figma Zstandard data has an unknown size or exceeds 128 MB.")
+		end
+		job:reserveBytes(expectedSize)
+		local decompressed = EncodingService:DecompressBuffer(compressed, Enum.CompressionAlgorithm.Zstd)
+		if buffer.len(decompressed) ~= expectedSize then
+			error("Invalid Figma decompressed size.")
+		end
 		return buffer.tostring(decompressed)
 	end
 
-	return Deflate.decompress(segment)
+	return Deflate.decompress(segment, job)
 end
 
-local function readSchema(data)
+local function readSchema(data, job)
 	local reader = Reader.new(data)
 	local typeCount = reader:uint()
+	if typeCount > 10000 then
+		error("Too many Kiwi schema types.")
+	end
 	local types = table.create(typeCount)
 
 	for typeIndex = 1, typeCount do
@@ -261,6 +282,10 @@ local function readSchema(data)
 		}
 
 		fieldCount = reader:uint()
+		if fieldCount > 10000 then
+			error("Too many Kiwi schema fields.")
+		end
+		job:checkpoint()
 		for _ = 1, fieldCount do
 			local field = {
 				name = reader:string(),
@@ -278,19 +303,31 @@ local function readSchema(data)
 	return types
 end
 
-local function decodeMessage(data, types)
+local function decodeMessage(data, types, job)
 	local reader = Reader.new(data)
 
-	local function decodeType(datatype, isArray)
+	local function decodeType(datatype, isArray, depth)
+		depth = (depth or 0) + 1
+		if depth > job.limits.depth then
+			error("Kiwi message nesting exceeds the limit.")
+		end
+		job:checkpoint()
 		if isArray then
 			local count = reader:uint()
+			if count > #data then
+				error("Invalid Kiwi array length.")
+			end
 			if datatype == -2 then
 				return reader:bytes(count)
 			end
 
+			if count > 1000000 then
+				error("Kiwi array exceeds the item limit.")
+			end
+			job:reserveBytes(count * 16)
 			local values = table.create(count)
 			for index = 1, count do
-				values[index] = decodeType(datatype, false)
+				values[index] = decodeType(datatype, false, depth)
 			end
 			return values
 		end
@@ -324,7 +361,7 @@ local function decodeMessage(data, types)
 		elseif typeInfo.kind == 1 then
 			local value = {}
 			for _, field in ipairs(typeInfo.fieldList) do
-				value[field.name] = decodeType(field.datatype, field.array)
+				value[field.name] = decodeType(field.datatype, field.array, depth)
 			end
 			return value
 		elseif typeInfo.kind == 2 then
@@ -338,7 +375,7 @@ local function decodeMessage(data, types)
 				if not field then
 					error(string.format("Unknown field %d on Kiwi type %s.", fieldId, typeInfo.name))
 				end
-				value[field.name] = decodeType(field.datatype, field.array)
+				value[field.name] = decodeType(field.datatype, field.array, depth)
 			end
 			return value
 		end
@@ -360,7 +397,7 @@ local function decodeMessage(data, types)
 	return decodeType(rootTypeIndex, false)
 end
 
-local function decodeCanvas(data)
+local function decodeCanvas(data, job)
 	if string.sub(data, 1, 8) ~= FIG_MAGIC then
 		error("This is not a Figma Design .fig file (missing fig-kiwi header).")
 	end
@@ -378,8 +415,11 @@ local function decodeCanvas(data)
 	position += 4
 	local messageSegment = string.sub(data, position, position + messageLength - 1)
 
-	local schema = readSchema(decompressSegment(schemaSegment))
-	return decodeMessage(decompressSegment(messageSegment), schema), version
+	if #schemaSegment ~= schemaLength or #messageSegment ~= messageLength then
+		error("Truncated Figma scene data.")
+	end
+	local schema = readSchema(decompressSegment(schemaSegment, job), job)
+	return decodeMessage(decompressSegment(messageSegment, job), schema, job), version
 end
 
 local function guidKey(guid)
@@ -436,7 +476,7 @@ local function roleForNode(node)
 	return "Frame"
 end
 
-local function buildDocument(message, version, source)
+local function buildDocument(message, version, source, job, options)
 	local nodeChanges = message.nodeChanges
 	if not nodeChanges or #nodeChanges == 0 then
 		error("This .fig file does not contain a scene graph.")
@@ -445,7 +485,11 @@ local function buildDocument(message, version, source)
 	local warnings = {}
 	local nodesById = {}
 	local lastNodeIndex = {}
+	if #nodeChanges > job.limits.layers * 4 then
+		error("Figma scene exceeds the node-count limit.")
+	end
 	for index, node in ipairs(nodeChanges) do
+		job:checkpoint()
 		if node.guid then
 			local key = guidKey(node.guid)
 			if node.phase == "REMOVED" then
@@ -562,7 +606,8 @@ local function buildDocument(message, version, source)
 			decodedImages[hash] = false
 			return nil
 		end
-		local ok, decoded = pcall(PngDecoder.decode, encoded)
+		local ok, decoded = pcall(PngDecoder.decode, encoded, job)
+		job:checkpoint()
 		if not ok then
 			imageDecodeFailures["PNG: " .. tostring(decoded)] = 1
 			decodedImages[hash] = false
@@ -594,11 +639,18 @@ local function buildDocument(message, version, source)
 		return requiresFallback
 	end
 
-	local function convertNode(node, parentMatrix)
+	local activeNodes = {}
+	local function convertNode(node, parentMatrix, depth)
+		depth = (depth or 0) + 1
+		job:checkpoint()
+		if depth > job.limits.depth or layerIndex >= job.limits.layers or activeNodes[node] then
+			error("Figma scene has cyclic components or exceeds the layer/nesting limit.")
+		end
 		if node.visible == false then
 			return nil
 		end
 
+		activeNodes[node] = true
 		local matrix = multiplyMatrix(parentMatrix, node.transform or IDENTITY_MATRIX)
 		-- IMPORTANT: unlike the previous version, the fallback here is {x=0,y=0}
 		-- instead of {x=1,y=1}. GROUP nodes (and a handful of other Figma node
@@ -862,11 +914,12 @@ local function buildDocument(message, version, source)
 			return tostring(left.parentIndex.position) < tostring(right.parentIndex.position)
 		end)
 		for _, childNode in ipairs(childNodes) do
-			local childLayer = convertNode(childNode, childParentMatrix)
+			local childLayer = convertNode(childNode, childParentMatrix, depth)
 			if childLayer then
 				table.insert(layer.children, childLayer)
 			end
 		end
+		activeNodes[node] = nil
 		return layer
 	end
 
@@ -933,7 +986,7 @@ local function buildDocument(message, version, source)
 	if countKeys(unsupportedPaintTypes) > 0 then
 		table.insert(
 			warnings,
-			"Unsupported Figma paint types were detected and preserved only by the rendered fallback: "
+			"Unsupported Figma paint types need rendered layer exports for exact appearance: "
 				.. describeCounts(unsupportedPaintTypes)
 		)
 	end
@@ -976,7 +1029,7 @@ local function buildDocument(message, version, source)
 		table.insert(
 			warnings,
 			string.format(
-				"The design contains %d complex vector node(s) and %d mask(s); unsupported vector regions use rendered artwork while semantic layers remain scriptable.",
+				"The design contains %d complex vector node(s) and %d mask(s); unsupported regions need rendered layer exports for exact appearance.",
 				vectorNodeCount,
 				maskNodeCount
 			)
@@ -1031,30 +1084,22 @@ local function buildDocument(message, version, source)
 	local composite
 	local compositeOriginalWidth
 	local compositeOriginalHeight
-	if complexArtwork and source.thumbnail then
-		local ok, decodedOrError = pcall(PngDecoder.decode, source.thumbnail)
+	if options and options.visualMode == "Reference" and source.thumbnail then
+		local ok, decoded = pcall(PngDecoder.decode, source.thumbnail, job)
+		job:checkpoint()
 		if ok then
-			compositeOriginalWidth = decodedOrError.width
-			compositeOriginalHeight = decodedOrError.height
-			composite = ImageResampler.upscaleSharpened(decodedOrError, documentWidth, documentHeight)
-			table.insert(
-				warnings,
-				string.format(
-					"Unsupported Figma regions use the embedded %dx%d preview, sharpened to %dx%d; %d supported layer(s) remain native.",
-					decodedOrError.width,
-					decodedOrError.height,
-					composite.width,
-					composite.height,
-					nativeOverlayLayerCount
-				)
-			)
+			composite = decoded
+			compositeOriginalWidth = decoded.width
+			compositeOriginalHeight = decoded.height
+			-- A thumbnail need not correspond to this page; retain its own aspect ratio.
+			documentWidth, documentHeight = decoded.width, decoded.height
 		else
-			table.insert(warnings, "The embedded Figma preview could not be decoded: " .. tostring(decodedOrError))
+			table.insert(warnings, "The Figma reference image could not be decoded: " .. tostring(decoded))
 		end
 	elseif complexArtwork then
 		table.insert(
 			warnings,
-			"This .fig file has complex artwork but no embedded PNG preview; unsupported visuals remain native approximations."
+			"Some Figma layers need rendered artwork exports for exact appearance; editable controls remain native."
 		)
 	end
 
@@ -1078,10 +1123,11 @@ local function buildDocument(message, version, source)
 	}
 end
 
-function FigParser.parse(data)
-	local source = getFigSource(data)
-	local message, version = decodeCanvas(source.canvasData)
-	return buildDocument(message, version, source)
+function FigParser.parse(data, job, options)
+	job = job or ImportJob.new()
+	local source = getFigSource(data, job)
+	local message, version = decodeCanvas(source.canvasData, job)
+	return buildDocument(message, version, source, job, options)
 end
 
 return FigParser

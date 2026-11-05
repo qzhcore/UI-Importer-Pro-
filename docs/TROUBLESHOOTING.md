@@ -46,12 +46,11 @@ not supported in this beta.
 
 ## Photoshop effects look different
 
-When effects are detected, UI Importer Pro preserves the rendered PSD
-composition in `RenderedDesign`. Keep that object visible. Roblox-native
-strokes, gradients, and shadows cannot recreate every Photoshop effect exactly.
-
-The semantic overlay objects are designed for scripting and may be transparent.
-Changing one overlay does not automatically repaint the composite artwork.
+Editable mode imports each layer and reports effects that it cannot render.
+Rasterize those effects into the individual decorative layers before importing,
+or use Reference image mode to import the static merged image for comparison.
+Basic raster masks are supported; parameterized/vector/group masks, clipping
+groups, and non-normal blend modes still require preparation in Photoshop.
 
 ## The design stretches
 
@@ -85,24 +84,28 @@ These classes need Roblox content after import:
 
 ## A Figma image or effect looks soft
 
-Lossless PNG fills are decoded into native artwork. JPEG/WebP fills, complex
-vectors, masks, non-linear gradients, inner shadows, and blur use the embedded
-Figma preview when the `.fig` archive includes one. Keep `RenderedDesign`
-visible; the transparent objects above it are semantic controls for scripting.
+PNG fills are decoded into layer artwork. JPEG/WebP fills, complex vectors,
+masks, and some effects remain unsupported or approximate in Editable mode.
+Inspect Output and UIImporterWarning attributes.
 
-The preview resolution is chosen by the exporting application, so a large
-design can still look softer than the source. The importer upscales and
-sharpens that preview and keeps supported independent layers native, but it
-cannot recreate detail that was never stored in the archive. Re-export the
-`.fig` after opening the correct page and zooming to the intended composition.
-If the archive has no preview, unsupported visuals fall back to native
-approximations and the plugin reports a warning.
+Reference mode uses the thumbnail stored by Figma, without artificial
+sharpening or native overlays. Its region and resolution may differ from the
+page you wanted. It cannot replace a full-resolution export of each layer.
+
+## An import exceeds a limit or needs to be cancelled
+
+Use Cancel import to stop between processing chunks. File selection and
+individual Studio asset API calls must return before cancellation takes effect.
+The tree is attached only after successful generation. Split documents that
+exceed the 16-megapixel per-image, 10,000-layer, 128-level, expanded-archive,
+or decoded-memory budgets; compressed file size alone does not predict memory.
 
 ## Re-import created a duplicate
 
-That is intentional. Imports do not overwrite or merge with existing UI.
-Compare the new root, reconnect scripts, and then delete the old root. Use Undo
-immediately after import to remove the new hierarchy as one operation.
+Create new is the default. Select an import made with this version, then choose
+**Update selected import**. Updates require the same document and durable layer IDs.
+Class changes, duplicate IDs, and older untracked imports are rejected safely.
+Source-deleted nodes are retained with warnings; they are not silently destroyed.
 
 ## Reporting a bug
 
@@ -119,3 +122,18 @@ and include:
 
 Do not publicly attach confidential client artwork. Replace it with a minimal
 test file or contact the maintainers privately.
+
+## Images disappear after restarting Studio
+
+**Session preview** uses temporary content. Reimport using **Upload to Roblox**
+with the locally installed plugin. Inspect the root's `UIImporterImageStorage`
+attribute and the image's `UIImporterAssetId` attribute to check the storage path.
+Uploaded images may still be unavailable while moderation or experience permissions
+are unresolved. See [Artwork Storage](ARTWORK_STORAGE.md).
+
+## Upload rejected or cancelled halfway through
+
+Use the local plugin, select an owner you can upload for, and check Studio Output.
+The importer stops on upload failure; it does not replace persistent images with
+temporary ones. IDs of images already uploaded are listed in Output. Those assets
+remain on Roblox even when the generated UI is rolled back.
